@@ -1,5 +1,12 @@
 import numpy as np
 from replay_buffer import ReplayBuffer
+from networks import DQN, DeepModel
+import torch as th
+from torch.optim import Adam
+from torch import nn
+
+device = "cuda" if th.cuda.is_available() else "cpu"
+
 
 class Agent():
     obs_shape: tuple[int] # observation shape
@@ -10,8 +17,17 @@ class Agent():
     batch_size: int # number of samples to draw from replay buffer
     replay_buffer: ReplayBuffer # replay buffer
     
+    Q_target: DQN # DQN used for target values, periodically updated
+    Q_learning: DQN # DQN that is directly trained
+    M: DeepModel # dynamics models
+    
+    gamma: float # discount factor
+    lr: float # learning rate
+    lamb: float # trade-off between M's state and reward losses
+    
     def __init__(self, obs_shape: tuple[int], obs_keys: list[str], obs_dtype: np.dtype, act_shape: int, batch_size: int,\
-                 max_replay_buffer_len: int, priority_default: float, alpha: float, beta: float, phi: float, c: float) -> None:
+                 max_replay_buffer_len: int, priority_default: float, alpha: float, beta: float, phi: float, c: float,\
+                 gamma: float, lr: float, lamb: float) -> None:
         
         self.obs_shape = obs_shape
         self.obs_keys = obs_keys
@@ -28,6 +44,37 @@ class Agent():
             c = c
         )
         
+        self.gamma = gamma
+        self.lr = lr
+        self.lamb = lamb
+        
+        # DQNs
+        self.Q_target = DQN(
+            obs_shape = self.obs_shape,
+            act_shape = self.act_shape
+        )
+        self.Q_target.to(device)
+        
+        self.Q_target = DQN(
+            obs_shape = self.obs_shape,
+            act_shape = self.act_shape
+        )
+        self.Q_target.to(device)
+        self.update_target_network()
+        
+        self.Q_criterion = lambda y, Q_state_action: th.mean(th.pow(y - Q_state_action, 2))
+        self.Q_optimizer = Adam(self.Q_learning.parameters(), lr=self.lr)
+        
+        # Dynamics Model
+        self.M = DeepModel(
+            obs_shape = self.obs_shape,
+            act_shape = self.act_shape
+        )
+        
+        self.M_component_criterion = nn.MSELoss()
+        self.M_criterion = lambda L1, L2, lamb=self.lamb: L1 + lamb*L2
+        self.M_opimizer = Adam(self.M.parameters(), lr=self.lr)
+        
     def reshape_state(self, channels: list[np.ndarray]) -> np.ndarray:
         obs = np.zeros(self.obs_shape, dtype=self.obs_dtype)
         assert len(channels) == self.obs_shape[0]
@@ -37,7 +84,7 @@ class Agent():
              
         return obs
     
-    def normalize_states(self, state: np.ndarray) -> np.ndarray:
+    def normalize_state(self, state: np.ndarray) -> np.ndarray:
         max_val = np.iinfo(self.obs_dtype).max
         min_val = np.iinfo(self.obs_dtype).min
         
@@ -46,3 +93,83 @@ class Agent():
         
         return (normed - min_val) / (max_val - min_val)
         
+    def update_target_network(self) -> None:
+        """Update DQN target network from the weights in the learning network
+        """
+        self.Q_target.load_state_dict(
+            self.Q_learning.state_dict().copy()
+        )
+        
+    def optimise_Q_loss(self, state: np.ndarray, action: np.ndarray, reward: np.ndarray, state_next: np.ndarray, done: np.ndarray) -> th.tensor:
+        """Uses minibatch sample to optimise TD-error of Q_learning
+
+        Returns:
+            th.tensor: loss for minibatch (scalar)
+        """
+        
+        self.Q_learning.train()
+        self.Q_target.eval()
+        self.Q_optimizer.zero_grad()
+        
+        state = th.tensor(
+            self.normalize_state(state),
+            dtype = th.float32
+        ).to(device)
+        reward = th.tensor(reward, dtype=th.float32).to(device)
+        state_next = th.tensor(
+            self.normalize_state(state_next),
+            dtype = th.float32
+        ).to(device)
+        done = th.tensor(done, dtype=th.float32).to(device)
+        
+        Qs_state = self.DQN_learning(state)
+        with th.no_grad():
+            Qs_state_next = self.DQN_target(state_next)
+        Q_max_state_next = th.max(Qs_state_next, dim=1)
+        
+        y = (
+            reward + (self.gamma * th.multiply(Q_max_state_next.values, (1 - done)))
+        ).to(device)
+        Q_state_action = (
+            Qs_state[np.arange(Qs_state.shape[0]), action]
+        ).to(device)
+        
+        loss = (self.criterion(y, Q_state_action)).to(device)
+        loss.backward()
+        
+        self.Q_optimizer.step()
+        
+        return loss
+    
+    def optimise_M_loss(self, state: np.ndarray, action: np.ndarray, reward: np.ndarray, state_next: np.ndarray) -> th.tensor:
+        """Uses minibatch sample to optimise M dynamics model
+
+        Returns:
+            th.tensor: loss for minibatch (scalar)
+        """
+        
+        self.M.train()
+        self.M_opimizer.zero_grad()
+        
+        
+        state = th.tensor(
+            self.normalize_state(state),
+            dtype = th.float32
+        ).to(device)
+        action = th.tensor(action, dtype=th.uint8).to(device)
+        reward = th.tensor(reward, dtype=th.float32).to(device)
+        state_next = th.tensor(
+            self.normalize_state(state_next),
+            dtype = th.float32
+        )
+        frame_next = (state_next[:, 0:2, :, :]).to(device)
+        
+        pred_frame_next, pred_reward = self.M(state, action)
+        loss_frame = self.M_component_criterion(frame_next, pred_frame_next)
+        loss_reward = self.M_component_criterion(reward, pred_reward)
+        
+        loss = self.M_opimizer(loss_frame, loss_reward)
+        loss.backward()
+        self.M_opimizer.step()
+        
+        return loss

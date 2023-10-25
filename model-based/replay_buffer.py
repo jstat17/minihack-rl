@@ -57,7 +57,7 @@ class ReplayBuffer():
             
         return (
             np.ndarray(states, dtype=np.float32),
-            np.ndarray(actions, dtype=np.float32),
+            np.ndarray(actions, dtype=np.uint8),
             np.ndarray(rewards, dtype=np.float32),
             np.ndarray(state_nexts, dtype=np.float32),
             np.ndarray(dones, dtype=np.float32),
