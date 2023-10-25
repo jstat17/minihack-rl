@@ -1,86 +1,42 @@
 import numpy as np
+from typing import Type
+from replay_buffer import ReplayBuffer
 
 class Agent():
     obs_shape: tuple[int] # observation shape
     obs_keys: list[str] # list of keys to index minihack observations
+    obs_dtype: np.dtype # dtype of observations
     act_shape: int # number of actions the agent can choose from
     
     batch_size: int # number of samples to draw from replay buffer
-    max_replay_buffer_len: int # maximum replay buffer length
+    replay_buffer: ReplayBuffer # replay buffer
     
-    def __init__(self, obs_shape: tuple[int], obs_keys: list[str], act_shape: int, batch_size: int, max_replay_buffer_len: int) -> None:
+    def __init__(self, obs_shape: tuple[int], obs_keys: list[str], obs_dtype: np.dtype, act_shape: int, batch_size: int,\
+                 max_replay_buffer_len: int, priority_default: float) -> None:
+        
         self.obs_shape = obs_shape
         self.obs_keys = obs_keys
+        self.obs_dtype = obs_dtype
         self.act_shape = act_shape
         
         self.batch_size = batch_size
-        self.max_replay_buffer_len = max_replay_buffer_len
-        
-        
-        
-class ReplayBuffer():
-    max_replay_buffer_len: int # maximum replay buffer length
-    priority_default: float # the starting priority for each transition
-    
-    buffer: list[tuple[np.ndarray, int, float, np.ndarray, float]] # the buffer of transitions
-    n_visits: list[int] # the number of visits to each transition
-    model_loss: list[float] # the loss computed on the dynamics model for this transition
-    priority: list[float] # the priority for retraining on this transition
-    
-    def __init__(self, max_replay_buffer_len: int, priority_default: float) -> None:
-        self.max_replay_buffer_len = max_replay_buffer_len + 1
-        self.priority_default = priority_default
-        
-        self.buffer = []
-        self.n_visits = []
-        self.model_loss = []
-        
-    def add_to_buffer(self, state: np.ndarray, action: int, reward: float, state_next: np.ndarray, done: float) -> None:
-        transition = (state, action, reward, state_next, done)
-        
-        self.buffer.append(transition)
-        self.n_visits.append(0)
-        self.model_loss.append(0.)
-        self.priority.append(self.priority_default)
-        
-        if len(self.buffer) > self.max_replay_buffer_len:
-            self.buffer.pop(0)
-            self.n_visits.pop(0)
-            self.model_loss.pop(0)
-            self.priority.pop(0)
-            
-    def __encode_for_Q(self, idxs: np.ndarray) -> tuple[np.ndarray]:
-        states, actions, rewards, state_nexts, dones = [], [], [], [], []
-        for idx in idxs:
-            state, action, reward, state_next, done = self.buffer[idx]
-            
-            states.append(state)
-            actions.append(action)
-            rewards.append(reward)
-            state_nexts.append(state_next)
-            dones.append(done)
-            
-        return (
-            np.ndarray(states, dtype=np.float32),
-            np.ndarray(actions, dtype=np.float32),
-            np.ndarray(rewards, dtype=np.float32),
-            np.ndarray(state_nexts, dtype=np.float32),
-            np.ndarray(dones, dtype=np.float32),
+        self.replay_buffer = ReplayBuffer(
+            max_replay_buffer_len = max_replay_buffer_len,
+            priority_default = priority_default
         )
         
-    def __encode_for_M(self, idxs: np.ndarray) -> tuple[np.ndarray]:
-        states, actions, rewards, state_nexts = [], [], [], []
-        for idx in idxs:
-            state, action, reward, state_next, _done = self.buffer[idx]
-            
-            states.append(state)
-            actions.append(action)
-            rewards.append(reward)
-            state_nexts.append(state_next)
-            
-        return (
-            np.ndarray(states, dtype=np.float32),
-            np.ndarray(actions, dtype=np.float32),
-            np.ndarray(rewards, dtype=np.float32),
-            np.ndarray(state_nexts, dtype=np.float32),
-        )
+    def reshape_state(self, channels: list[np.ndarray]) -> np.ndarray:
+        obs = np.zeros(self.obs_shape, dtype=self.obs_dtype)
+        assert len(channels) == self.obs_shape[0]
+        
+        for i, chn in enumerate(channels):
+             obs[i] = chn
+             
+        return obs
+    
+    def normalize_states(self, state: np.ndarray) -> np.ndarray:
+        max_val = np.iinfo(self.obs_dtype).max
+        min_val = np.iinfo(self.obs_dtype).min
+        
+        return (state - min_val) / (max_val - min_val)
+        
