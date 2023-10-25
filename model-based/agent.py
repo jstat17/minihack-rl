@@ -122,9 +122,9 @@ class Agent():
         ).to(device)
         done = th.tensor(done, dtype=th.float32).to(device)
         
-        Qs_state = self.DQN_learning(state)
+        Qs_state = self.Q_learning(state)
         with th.no_grad():
-            Qs_state_next = self.DQN_target(state_next)
+            Qs_state_next = self.Q_target(state_next)
         Q_max_state_next = th.max(Qs_state_next, dim=1)
         
         y = (
