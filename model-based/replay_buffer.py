@@ -13,17 +13,22 @@ class ReplayBuffer():
     # curious-adversarial parameters
     alpha: float
     beta: float
-    epsilon: float
+    phi: float
     c: float
     
     
-    def __init__(self, max_replay_buffer_len: int, priority_default: float) -> None:
+    def __init__(self, max_replay_buffer_len: int, priority_default: float, alpha: float, beta: float, phi: float, c: float) -> None:
         self.max_replay_buffer_len = max_replay_buffer_len + 1
         self.priority_default = priority_default
         
         self.buffer = []
         self.n_visits = []
         self.model_loss = []
+        
+        self.alpha = alpha
+        self.beta = beta
+        self.phi = phi
+        self.c = c
         
     def add_to_buffer(self, state: np.ndarray, action: int, reward: float, state_next: np.ndarray, done: float) -> None:
         transition = (state, action, reward, state_next, done)
@@ -76,7 +81,7 @@ class ReplayBuffer():
         n_vists = np.array(self.n_visits[idxs], dtype=np.float32)
         model_loss = np.abs(np.array(self.model_loss[idxs], dtype=np.float32))
         
-        return self.c * np.power(self.beta, n_vists) + np.power(model_loss + self.epsilon, self.alpha)
+        return self.c * np.power(self.beta, n_vists) + np.power(model_loss + self.phi, self.alpha)
     
     def update_priority(self, idxs: np.ndarray, model_losses: np.ndarray) -> None:
         for idx in idxs:

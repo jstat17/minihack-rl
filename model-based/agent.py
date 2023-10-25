@@ -1,5 +1,4 @@
 import numpy as np
-from typing import Type
 from replay_buffer import ReplayBuffer
 
 class Agent():
@@ -12,7 +11,7 @@ class Agent():
     replay_buffer: ReplayBuffer # replay buffer
     
     def __init__(self, obs_shape: tuple[int], obs_keys: list[str], obs_dtype: np.dtype, act_shape: int, batch_size: int,\
-                 max_replay_buffer_len: int, priority_default: float) -> None:
+                 max_replay_buffer_len: int, priority_default: float, alpha: float, beta: float, phi: float, c: float) -> None:
         
         self.obs_shape = obs_shape
         self.obs_keys = obs_keys
@@ -22,7 +21,11 @@ class Agent():
         self.batch_size = batch_size
         self.replay_buffer = ReplayBuffer(
             max_replay_buffer_len = max_replay_buffer_len,
-            priority_default = priority_default
+            priority_default = priority_default,
+            alpha = alpha,
+            beta = beta,
+            phi = phi,
+            c = c
         )
         
     def reshape_state(self, channels: list[np.ndarray]) -> np.ndarray:
@@ -38,5 +41,8 @@ class Agent():
         max_val = np.iinfo(self.obs_dtype).max
         min_val = np.iinfo(self.obs_dtype).min
         
-        return (state - min_val) / (max_val - min_val)
+        normed = np.zeros_like(state.shape, dtype=np.float32)
+        normed = state
+        
+        return (normed - min_val) / (max_val - min_val)
         
