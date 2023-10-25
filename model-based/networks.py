@@ -1,0 +1,120 @@
+import torch as th
+from torch import nn
+
+
+class DQN(nn.Module):
+    def __init__(self, obs_shape: tuple[int], act_shape: int) -> None:
+        super().__init__()
+        
+        in_chn, _, _ = obs_shape
+        
+        layers = [
+            nn.Conv2d(in_channels=in_chn, out_channels=8, kernel_size=3, stride=1), # 8x7x7
+            nn.ReLU(inplace=True),
+            nn.Conv2d(in_channels=8, out_channels=16, kernel_size=3, stride=1), # 16x5x5
+            nn.ReLU(inplace=True),
+            nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, stride=1), # 32x3x3
+            nn.ReLU(inplace=True),
+            nn.Flatten(),
+            nn.Linear(in_features=32*3*3, out_features=256),
+            nn.ReLU(inplace=True),
+            nn.Linear(in_features=256, out_features=act_shape)
+        ]
+        
+        self.sequential = nn.Sequential(*layers)
+        
+    def forward(self, tens: th.tensor) -> th.tensor:
+        return self.sequential(tens)
+    
+    
+class DeepModel(nn.Module):
+    def __init__(self, obs_shape: tuple[int], act_shape: int) -> None:
+        super().__init__()
+        
+        in_chn, _, _ = obs_shape
+        self.action_embedding = nn.Embedding(act_shape, 3*3, _freeze=True)
+        
+        # encoder
+        self.encoder = nn.ModuleList()
+        self.encoder.append(self.__conv_block(in_channels=in_chn, out_channels=8, kernel_size=3, stride=1, padding=0, activation=True)) # 8x7x7
+        self.encoder.append(self.__conv_block(in_channels=8, out_channels=16, kernel_size=3, stride=1, padding=0, activation=True)) # 16x5x5
+        self.encoder.append(self.__conv_block(in_channels=16, out_channels=32, kernel_size=3, stride=1, padding=0, activation=True)) # 32x3x3
+        
+        # bottleneck adds an additional layer in action embedding
+        
+        # decoder
+        self.decoder = nn.ModuleList()
+        self.decoder.append(self.__upscale_conv_block(in_channels=33, out_channels=16, kernel_size=3, stride=1, output_size=(5,5), mode='bilinear', activation=True))
+        # concatenate 16 encoder channels
+        self.decoder.append(self.__upscale_conv_block(in_channels=32, out_channels=8, kernel_size=3, stride=1, output_size=(7,7), mode='bilinear', activation=True))
+        # concatenate 8 encoder channels
+        self.decoder.append(self.__upscale_conv_block(in_channels=16, out_channels=4, kernel_size=3, stride=1, output_size=(9,9), mode='bilinear', activation=True))
+        # 3 output channels, 0-1 are future frame, 2 is reward
+        self.decoder.append(self.__conv_block(in_channels=4, out_channels=3, kernel_size=3, stride=1, padding='same', activation=False))
+        
+    def __conv_block(self, in_channels: int, out_channels: int, kernel_size: int, stride: int, padding: int | str, activation: bool) -> nn.Sequential:
+        layers = [
+            nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding)
+        ]
+        
+        if activation:
+            layers.append(
+                nn.ReLU(inplace=True)
+            )
+            
+        return nn.Sequential(*layers)
+    
+    def __upscale_conv_block(self, in_channels: int, out_channels: int, kernel_size: int, stride: int, output_size: tuple[int], mode: str,\
+                             activation: bool) -> nn.Sequential:
+        layers = [
+            Interpolation(output_size=output_size, mode=mode, align_corners=False),
+            nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding='same')
+        ]
+        
+        if activation:
+            layers.append(
+                nn.ReLU(inplace=True)
+            )
+            
+        return nn.Sequential(*layers)
+    
+    def forward(self, state: th.tensor, action: th.tensor) -> tuple[th.tensor]:
+        x = state
+        
+        # encoder
+        encoder_outputs = []
+        for i, conv_block in enumerate(self.encoder):
+            x = conv_block(x)
+            
+            if i < len(self.encoder) - 1:
+                encoder_outputs.append(x)
+            
+        # bottleneck
+        action_channel = self.action_embedding(action)
+        action_channel = action_channel.view(action_channel.size(0), 1, 3, 3)
+        x = th.concat([x, action_channel], dim=1)
+        
+        # decoder
+        for i, upscale_conv_block in enumerate(self.decoder):
+            x = upscale_conv_block(x)
+            
+            if i < len(self.decoder) - 2:
+                x = th.concat([x, encoder_outputs.pop()], dim=1)
+                
+        frame_next = x[:, 0:2, :, :]
+        reward = x[:, 2:, :, :]
+        reward = nn.functional.adaptive_avg_pool2d(reward, 1)
+        
+        return frame_next, reward
+    
+
+class Interpolation(nn.Module):
+    def __init__(self, output_size: tuple[int], mode: str, align_corners: bool) -> None:
+        super().__init__()
+        
+        self.output_size = output_size
+        self.mode = mode
+        self.align_corners = align_corners
+        
+    def forward(self, x: th.tensor) -> th.tensor:
+        return nn.functional.interpolate(x, size=self.output_size, mode=self.mode, align_corners=self.align_corners)
