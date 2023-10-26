@@ -78,8 +78,9 @@ class DeepModel(nn.Module):
             
         return nn.Sequential(*layers)
     
-    def forward(self, state: th.tensor, action: th.tensor) -> tuple[th.tensor]:
+    def forward(self, state: th.Tensor, action: th.Tensor) -> tuple[th.Tensor]:
         x = state
+        a = action[:, None]
         
         # encoder
         encoder_outputs = []
@@ -90,7 +91,7 @@ class DeepModel(nn.Module):
                 encoder_outputs.append(x)
             
         # bottleneck
-        action_channel = self.action_embedding(action)
+        action_channel = self.action_embedding(a)
         action_channel = action_channel.view(action_channel.size(0), 1, 3, 3)
         x = th.concat([x, action_channel], dim=1)
         
@@ -105,7 +106,7 @@ class DeepModel(nn.Module):
         reward = x[:, 2:, :, :]
         reward = nn.functional.adaptive_avg_pool2d(reward, 1)
         
-        return frame_next, reward
+        return frame_next, reward.reshape((-1,))
     
 
 class Interpolation(nn.Module):
@@ -116,5 +117,5 @@ class Interpolation(nn.Module):
         self.mode = mode
         self.align_corners = align_corners
         
-    def forward(self, x: th.tensor) -> th.tensor:
+    def forward(self, x: th.Tensor) -> th.Tensor:
         return nn.functional.interpolate(x, size=self.output_size, mode=self.mode, align_corners=self.align_corners)

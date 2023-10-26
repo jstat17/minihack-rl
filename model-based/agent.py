@@ -55,11 +55,11 @@ class Agent():
         )
         self.Q_target.to(device)
         
-        self.Q_target = DQN(
+        self.Q_learning = DQN(
             obs_shape = self.obs_shape,
             act_shape = self.act_shape
         )
-        self.Q_target.to(device)
+        self.Q_learning.to(device)
         self.update_target_network()
         
         self.Q_criterion = lambda y, Q_state_action: th.mean(th.pow(y - Q_state_action, 2))
@@ -70,8 +70,9 @@ class Agent():
             obs_shape = self.obs_shape,
             act_shape = self.act_shape
         )
+        self.M.to(device)
         
-        self.M_component_criterion = nn.MSELoss()
+        self.M_component_criterion = nn.MSELoss(reduction='none')
         self.M_criterion = lambda L1, L2, lamb=self.lamb: L1 + lamb*L2
         self.M_opimizer = Adam(self.M.parameters(), lr=self.lr)
         
@@ -100,7 +101,7 @@ class Agent():
             self.Q_learning.state_dict().copy()
         )
         
-    def optimise_Q_loss(self, state: np.ndarray, action: np.ndarray, reward: np.ndarray, state_next: np.ndarray, done: np.ndarray) -> th.tensor:
+    def optimise_Q_loss(self, state: th.Tensor, action: th.Tensor, reward: th.Tensor, state_next: th.Tensor, done: th.Tensor) -> th.Tensor:
         """Uses minibatch sample to optimise TD-error of Q_learning
 
         Returns:
@@ -111,16 +112,16 @@ class Agent():
         self.Q_target.eval()
         self.Q_optimizer.zero_grad()
         
-        state = th.tensor(
-            self.normalize_state(state),
-            dtype = th.float32
-        ).to(device)
-        reward = th.tensor(reward, dtype=th.float32).to(device)
-        state_next = th.tensor(
-            self.normalize_state(state_next),
-            dtype = th.float32
-        ).to(device)
-        done = th.tensor(done, dtype=th.float32).to(device)
+        # state = th.tensor(
+        #     self.normalize_state(state),
+        #     dtype = th.float32
+        # ).to(device)
+        # reward = th.tensor(reward, dtype=th.float32).to(device)
+        # state_next = th.tensor(
+        #     self.normalize_state(state_next),
+        #     dtype = th.float32
+        # ).to(device)
+        # done = th.tensor(done, dtype=th.float32).to(device)
         
         Qs_state = self.Q_learning(state)
         with th.no_grad():
@@ -131,17 +132,17 @@ class Agent():
             reward + (self.gamma * th.multiply(Q_max_state_next.values, (1 - done)))
         ).to(device)
         Q_state_action = (
-            Qs_state[np.arange(Qs_state.shape[0]), action]
+            Qs_state[np.arange(Qs_state.shape[0]), action.tolist()]
         ).to(device)
         
-        loss = (self.criterion(y, Q_state_action)).to(device)
+        loss = (self.Q_criterion(y, Q_state_action)).to(device)
         loss.backward()
         
         self.Q_optimizer.step()
         
         return loss
     
-    def optimise_M_loss(self, state: np.ndarray, action: np.ndarray, reward: np.ndarray, state_next: np.ndarray) -> th.tensor:
+    def optimise_M_loss(self, state: th.Tensor, action: th.Tensor, reward: th.Tensor, frame_next: th.Tensor) -> tuple[th.Tensor, th.Tensor]:
         """Uses minibatch sample to optimise M dynamics model
 
         Returns:
@@ -152,24 +153,43 @@ class Agent():
         self.M_opimizer.zero_grad()
         
         
-        state = th.tensor(
-            self.normalize_state(state),
-            dtype = th.float32
-        ).to(device)
-        action = th.tensor(action, dtype=th.uint8).to(device)
-        reward = th.tensor(reward, dtype=th.float32).to(device)
-        state_next = th.tensor(
-            self.normalize_state(state_next),
-            dtype = th.float32
-        )
-        frame_next = (state_next[:, 0:2, :, :]).to(device)
+        # state = th.tensor(
+        #     self.normalize_state(state),
+        #     dtype = th.float32
+        # ).to(device)
+        # action = th.tensor(action, dtype=th.uint8).to(device)
+        # reward = th.tensor(reward, dtype=th.float32).to(device)
+        # state_next = th.tensor(
+        #     self.normalize_state(state_next),
+        #     dtype = th.float32
+        # )
+        # frame_next = (state_next[:, 0:2, :, :]).to(device)
         
         pred_frame_next, pred_reward = self.M(state, action)
-        loss_frame = self.M_component_criterion(frame_next, pred_frame_next)
+        loss_frame = th.mean(
+            self.M_component_criterion(frame_next, pred_frame_next),
+            dim = (1, 2, 3)
+        )
         loss_reward = self.M_component_criterion(reward, pred_reward)
         
-        loss = self.M_opimizer(loss_frame, loss_reward)
+        losses = self.M_criterion(loss_frame, loss_reward)
+        loss = th.mean(losses)
         loss.backward()
         self.M_opimizer.step()
         
-        return loss
+        return th.reshape(losses, (-1,)), loss
+    
+    def act(self, state: th.Tensor) -> th.Tensor:
+        """Gets Q_target's state-action values
+
+        Args:
+            state (th.tensor): current state
+
+        Returns:
+            Tuple[int, float]: action, action's Q value
+        """
+        self.Q_target.eval()
+        with th.no_grad():
+            Q_values = self.Q_target(state)
+        
+        return Q_values

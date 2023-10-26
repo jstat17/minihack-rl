@@ -1,4 +1,5 @@
 import numpy as np
+from typing import Iterable
 
 
 class ReplayBuffer():
@@ -24,6 +25,7 @@ class ReplayBuffer():
         self.buffer = []
         self.n_visits = []
         self.model_loss = []
+        self.priority = []
         
         self.alpha = alpha
         self.beta = beta
@@ -56,18 +58,18 @@ class ReplayBuffer():
             dones.append(done)
             
         return (
-            np.ndarray(states, dtype=np.float32),
-            np.ndarray(actions, dtype=np.uint8),
-            np.ndarray(rewards, dtype=np.float32),
-            np.ndarray(state_nexts, dtype=np.float32),
-            np.ndarray(dones, dtype=np.float32),
+            np.array(states, dtype=np.float32),
+            np.array(actions, dtype=np.uint8),
+            np.array(rewards, dtype=np.float32),
+            np.array(state_nexts, dtype=np.float32),
+            np.array(dones, dtype=np.float32),
         )
         
     def sample(self, batch_size: int) -> tuple[np.ndarray, np.ndarray]:
         norm_priority = np.array(self.priority, dtype=np.float32)
         norm_priority /= np.sum(norm_priority)
         
-        all_idxs = np.arange(0, len(self.max_replay_buffer_len) - 1)
+        all_idxs = np.arange(0, len(self.buffer))
         idxs = np.random.choice(
             all_idxs,
             size = batch_size,
@@ -77,17 +79,17 @@ class ReplayBuffer():
         return idxs, self.__encode(idxs)
     
     def __calculate_priority(self, idxs: np.ndarray) -> np.ndarray:
-        idxs = tuple(idxs)
-        n_vists = np.array(self.n_visits[idxs], dtype=np.float32)
-        model_loss = np.abs(np.array(self.model_loss[idxs], dtype=np.float32))
+        idxs = list(idxs)
+        n_vists = np.array(self.n_visits, dtype=np.float32)[idxs]
+        model_loss = np.abs(np.array(self.model_loss, dtype=np.float32)[idxs])
         
         return self.c * np.power(self.beta, n_vists) + np.power(model_loss + self.phi, self.alpha)
     
-    def update_priority(self, idxs: np.ndarray, model_losses: np.ndarray) -> None:
-        for idx in idxs:
+    def update_priority(self, idxs: np.ndarray, model_losses: Iterable) -> None:
+        for i, idx in enumerate(idxs):
             self.n_visits[idx] += 1
-            self.model_loss[idx] = model_losses[idx]
+            self.model_loss[idx] = model_losses[i].to("cpu").item()
             
         new_priorities = self.__calculate_priority(idxs)
-        for idx in idxs:
-            self.priority[idx] = new_priorities[idx]
+        for i, idx in enumerate(idxs):
+            self.priority[idx] = new_priorities[i]
