@@ -1,5 +1,6 @@
 import numpy as np
 from typing import Iterable
+import matplotlib.pyplot as plt
 
 
 class ReplayBuffer():
@@ -93,3 +94,6 @@ class ReplayBuffer():
         new_priorities = self.__calculate_priority(idxs)
         for i, idx in enumerate(idxs):
             self.priority[idx] = new_priorities[i]
+            
+        # plt.hist(self.priority)
+        # plt.show()

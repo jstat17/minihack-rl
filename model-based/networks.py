@@ -8,23 +8,55 @@ class DQN(nn.Module):
         
         in_chn, _, _ = obs_shape
         
+        # layers = [
+        #     nn.Conv2d(in_channels=in_chn, out_channels=8, kernel_size=3, stride=1, padding='same'), # 8x9x9
+        #     nn.ReLU(inplace=True),
+        #     nn.Conv2d(in_channels=8, out_channels=16, kernel_size=3, stride=1, padding='same'), # 16x9x9
+        #     nn.ReLU(inplace=True),
+        #     nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, stride=1, padding='same'), # 32x9x9
+        #     nn.ReLU(inplace=True),
+        #     nn.Flatten(),
+        #     nn.Linear(in_features=32*9*9, out_features=256),
+        #     nn.ReLU(inplace=True),
+        #     nn.Linear(in_features=256, out_features=act_shape)
+        # ]
         layers = [
-            nn.Conv2d(in_channels=in_chn, out_channels=8, kernel_size=3, stride=1), # 8x7x7
-            nn.ReLU(inplace=True),
-            nn.Conv2d(in_channels=8, out_channels=16, kernel_size=3, stride=1), # 16x5x5
-            nn.ReLU(inplace=True),
-            nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, stride=1), # 32x3x3
-            nn.ReLU(inplace=True),
             nn.Flatten(),
-            nn.Linear(in_features=32*3*3, out_features=256),
+            nn.Linear(in_features=64*4*4, out_features=512),
             nn.ReLU(inplace=True),
-            nn.Linear(in_features=256, out_features=act_shape)
+            nn.Linear(in_features=512, out_features=512),
+            nn.ReLU(inplace=True),
+            nn.Linear(in_features=512, out_features=act_shape)
         ]
+        
+        self.enconder = nn.ModuleList()
+        self.enconder.append(self.__conv_block(in_channels=in_chn, out_channels=32, kernel_size=4, stride=1, padding=0, activation=True)) # 16x6x6
+        self.enconder.append(self.__conv_block(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=0, activation=True)) # 32x4x4
+        self.enconder.append(self.__conv_block(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding='same', activation=True)) # 64x4x4
         
         self.sequential = nn.Sequential(*layers)
         
-    def forward(self, tens: th.tensor) -> th.tensor:
-        return self.sequential(tens)
+    def __conv_block(self, in_channels: int, out_channels: int, kernel_size: int, stride: int, padding: int | str, activation: bool) -> nn.Sequential:
+        layers = [
+            nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding)
+        ]
+        
+        if activation:
+            layers.append(
+                nn.ReLU(inplace=True)
+            )
+            
+        return nn.Sequential(*layers)
+        
+    def forward(self, state: th.tensor) -> th.tensor:
+        x = state
+        
+        for conv_block in self.enconder:
+            x = conv_block(x)
+        
+        # x = th.concat([x, state], dim=1)
+        
+        return self.sequential(x)
     
     
 class DeepModel(nn.Module):
@@ -49,7 +81,7 @@ class DeepModel(nn.Module):
         self.decoder.append(self.__upscale_conv_block(in_channels=32, out_channels=8, kernel_size=3, stride=1, output_size=(7,7), mode='bilinear', activation=True))
         # concatenate 8 encoder channels
         self.decoder.append(self.__upscale_conv_block(in_channels=16, out_channels=4, kernel_size=3, stride=1, output_size=(9,9), mode='bilinear', activation=True))
-        # 3 output channels, 0-1 are future frame, 2 is reward
+        # concatenate input frames --- 3 output channels, 0-1 are future frame, 2 is reward
         self.decoder.append(self.__conv_block(in_channels=4, out_channels=3, kernel_size=3, stride=1, padding='same', activation=False))
         
     def __conv_block(self, in_channels: int, out_channels: int, kernel_size: int, stride: int, padding: int | str, activation: bool) -> nn.Sequential:
@@ -101,12 +133,15 @@ class DeepModel(nn.Module):
             
             if i < len(self.decoder) - 2:
                 x = th.concat([x, encoder_outputs.pop()], dim=1)
+            # elif i == 2:
+            #     x = th.concat([x, state[:, 0:2, :, :]], dim=1)
+            
                 
-        frame_next = x[:, 0:2, :, :]
+        state_next = x[:, 0:2, :, :]
         reward = x[:, 2:, :, :]
         reward = nn.functional.adaptive_avg_pool2d(reward, 1)
         
-        return frame_next, reward.reshape((-1,))
+        return state_next, reward.reshape((-1,))
     
 
 class Interpolation(nn.Module):

@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from natsort import natsorted
 from typing import Callable
 from functools import partial
+import pickle as pk
 
 
 
@@ -32,35 +33,35 @@ def linear_schedule(x_start: int, x_end: int, y_start: float, y_end: float) -> C
 
 def main(hyper_params: dict):
     # Create save folders and logs for trained models
-    # parent_folder = './runs/'
+    parent_folder = './runs/'
 
-    # if not os.path.exists(parent_folder):
-    #     os.makedirs(parent_folder)
+    if not os.path.exists(parent_folder):
+        os.makedirs(parent_folder)
 
-    # existing_folders = natsorted(os.listdir(parent_folder))
+    existing_folders = natsorted(os.listdir(parent_folder))
 
-    # if not existing_folders:
-    #     new_folder_name = '01'
-    # else:
-    #     last_folder_name = existing_folders[-1]
-    #     last_folder_number = int(last_folder_name)
+    if not existing_folders:
+        new_folder_name = '01'
+    else:
+        last_folder_name = existing_folders[-1]
+        last_folder_number = int(last_folder_name)
         
-    #     new_folder_number = last_folder_number + 1
-    #     new_folder_name = f'{new_folder_number:02d}'
+        new_folder_number = last_folder_number + 1
+        new_folder_name = f'{new_folder_number:02d}'
 
-    # new_folder_path = os.path.join(parent_folder, new_folder_name)
-    # os.makedirs(new_folder_path)
-    # print(f'Created folder: {new_folder_path}')
+    new_folder_path = os.path.join(parent_folder, new_folder_name)
+    os.makedirs(new_folder_path)
+    print(f'Created folder: {new_folder_path}')
     
-    # Q_weights_path = os.path.join(new_folder_path, "Q-weights-")
-    # M_weights_path = os.path.join(new_folder_path, "M-weights-")
-    # logs_path = os.path.join(new_folder_path, "logs.pkl")
+    Q_weights_path = os.path.join(new_folder_path, "Q-weights-")
+    M_weights_path = os.path.join(new_folder_path, "M-weights-")
+    logs_path = os.path.join(new_folder_path, "logs.pkl")
 
     np.random.seed(hyper_params['seed'])
     
     agent = Agent(
-        obs_shape = (4, 9, 9),
-        obs_keys = ["pixel", "colors_crop", "chars_crop", "message"],
+        obs_shape = (2, 9, 9),
+        obs_keys = ["pixel", "pixel_crop", "colors_crop", "chars_crop", "message", "tty_cursor"],
         obs_dtype = np.uint8,
         act_shape = len(hyper_params['env_actions']),
         batch_size = hyper_params['batch_size'],
@@ -71,7 +72,8 @@ def main(hyper_params: dict):
         phi = hyper_params['phi'],
         c = hyper_params['c'],
         gamma = hyper_params['gamma'],
-        lr = hyper_params['lr'],
+        lr_Q = hyper_params['lr_Q'],
+        lr_M = hyper_params['lr_M'],
         lamb = hyper_params['lamb']
     )
     
@@ -82,6 +84,7 @@ def main(hyper_params: dict):
     episode_average_M_loss = [0.0]
     n_Q_updates = 0
     n_M_updates = 0
+    episode_steps = [0]
     
     switch_env = True
     env_counter = 0
@@ -100,7 +103,9 @@ def main(hyper_params: dict):
                 hyper_params['env_names'][env_counter],
                 observation_keys = tuple(agent.obs_keys),
                 actions = hyper_params['env_actions'],
-                reward_lose = -1.0
+                reward_lose = -1.0,
+                penalty_step = -0.1,
+                # penalty_time = -0.001
             )
             
             env_num_actions = hyper_params['env_action_spaces'][env_counter]
@@ -109,8 +114,8 @@ def main(hyper_params: dict):
             state = np.zeros(agent.obs_shape, agent.obs_dtype)
             state[0] = state_dict['colors_crop']
             state[1] = state_dict['chars_crop']
-            state[2] = state_dict['colors_crop']
-            state[3] = state_dict['chars_crop']
+            
+            # prev_x = state_dict["tty_cursor"][1]
             
             switch_env = False
             
@@ -123,6 +128,8 @@ def main(hyper_params: dict):
             action = np.random.randint(0, env_num_actions)
         else:
             Q_values = agent.act(state_tensor)[:, :env_num_actions]
+            # if t % 10 == 0:
+            #     print(Q_values)
             action = th.argmax(Q_values).item()
             action_value = th.max(Q_values).item()
             
@@ -131,12 +138,18 @@ def main(hyper_params: dict):
             
         # agent takes real step in environment
         state_next_dict, reward, done, _info = env.step(action)
+        episode_steps[-1] += 1
         
         state_next = np.zeros(agent.obs_shape, agent.obs_dtype)
         state_next[0] = state_next_dict['colors_crop']
         state_next[1] = state_next_dict['chars_crop']
-        state_next[2] = state[0]
-        state_next[3] = state[1]
+        
+        # curr_x = state_dict["tty_cursor"][1]
+        # x_diff = int(curr_x) - int(prev_x)
+        # if x_diff > 0:
+        #     reward += 0.1
+        # elif x_diff < 0:
+        #     reward += -0.1
 
         agent.replay_buffer.add_to_buffer(
             state = state,
@@ -146,9 +159,16 @@ def main(hyper_params: dict):
             done = float(done)
         )
         
+        old_state = state
         state = state_next
         episode_rewards[-1] += reward
         n_episodes = len(episode_rewards)
+        
+        # if n_episodes > 50:
+        #     print("display")
+        #     print(action)
+        #     plt.imshow(state_next_dict['pixel_crop'])
+        #     plt.show()
         
         # agent fails or wins level
         if done:
@@ -156,6 +176,10 @@ def main(hyper_params: dict):
             if n_envs > 1 and n_episodes % hyper_params['change_env_episode_freq'] == 0:
                 switch_env = True
                 env_counter  = (env_counter + 1) % n_envs
+                
+                agent.lr_Q = hyper_params['lr_Q']
+                hyper_params['learning_starts'] += t
+                hyper_params['planning_starts'] += t
             
             # otherwise reset current env
             else:
@@ -163,8 +187,13 @@ def main(hyper_params: dict):
                 state = np.zeros(agent.obs_shape, agent.obs_dtype)
                 state[0] = state_dict['colors_crop']
                 state[1] = state_dict['chars_crop']
-                state[2] = state_dict['colors_crop']
-                state[3] = state_dict['chars_crop']
+                
+                agent.lr_Q = max(agent.lr_Q * 0.985, hyper_params['min_lr_Q'])
+                for g in agent.Q_optimizer.param_groups:
+                    g['lr'] = agent.lr_Q
+                # agent.lr_M = agent.lr_M * 0.98
+                # for g in agent.M_optimizer.param_groups:
+                #     g['lr'] = agent.lr_M
             
             # logging
             episode_rewards.append(0.0)
@@ -183,7 +212,27 @@ def main(hyper_params: dict):
                 episode_average_M_loss[-1] /= n_M_updates
             episode_average_M_loss.append(0.0)
             n_M_updates = 0
+            
+            episode_steps.append(0)
 
+        if t > 1_000 and t % 2_000 == 0:
+            pred_frame, pred_reward = agent.M(state_tensor, th.tensor([action], dtype=th.int32).to(device))
+            print(f"{pred_reward = }")
+            print(f"dones = {(th.round(th.mean(state_nexts, dim=(1, 2, 3))) < 0.1).type(th.float32)}")
+            fig = plt.figure(figsize=(12,6))
+            ax = plt.subplot(1, 3, 1)
+            ax.matshow(old_state[1])
+            ax.set_title(f"Current state, action: {action}")
+            ax = plt.subplot(1, 3, 2)
+            ax.matshow(state_next[1])
+            ax.set_title("Next state")
+            ax = plt.subplot(1, 3, 3)
+            ax.matshow(pred_frame[0][1].to("cpu").detach().numpy())
+            plt.tight_layout()
+            plt.savefig(f"./runs/img{t}.png", dpi=100)
+            # plt.show()
+            
+        
         # Learning
         if t > hyper_params['learning_starts'] and t % hyper_params['learning_steps_freq']:
             # get samples from buffer
@@ -198,7 +247,6 @@ def main(hyper_params: dict):
                 agent.normalize_state(state_nexts),
                 dtype=th.float32
             ).to(device)
-            frame_nexts = state_nexts[:, 0:2, :, :].to(device)
             dones = th.tensor(dones, dtype=th.float32).to(device)
             
             # optimize
@@ -213,7 +261,7 @@ def main(hyper_params: dict):
                 state = states,
                 action = actions,
                 reward = rewards,
-                frame_next = frame_nexts
+                state_next = state_nexts
             )
             
             # update buffer priorities
@@ -229,64 +277,103 @@ def main(hyper_params: dict):
             n_M_updates += 1
             episode_average_M_loss[-1] += M_loss.to("cpu").item()
             
+            
+        # Planning
+        if t > hyper_params['planning_starts'] and t % hyper_params['planning_steps_freq']:
+            # get samples from buffer
+            _idxs, (states, actions, rewards, _state_nexts, _dones) = agent.replay_buffer.sample(hyper_params['batch_size'])
+            states = th.tensor(
+                agent.normalize_state(states),
+                dtype=th.float32
+            ).to(device)
+            
+            # random actions
+            actions = th.tensor(np.random.randint(0, env_num_actions, size=(hyper_params['batch_size'], 1)), dtype=th.int32).to(device)
+            
+            # use model
+            state_nexts, rewards = agent.M(states, actions)
+            dones = (th.round(th.mean(state_nexts, dim=(1, 2, 3))) < 0.1).type(th.float32).to(device)
+            
+            Q_loss = agent.optimise_Q_loss(
+                state = states,
+                action = actions,
+                reward = rewards,
+                state_next = state_nexts,
+                done = dones
+            )
+            n_Q_updates += 1
+            episode_average_Q_loss[-1] += Q_loss.to("cpu").item()
+            
         # Updating Q_target periodically
         if t > hyper_params['learning_starts'] and t % hyper_params['update_Q_target_steps_freq'] == 0:
             agent.update_target_network()
         
         # printing logs
         if done and n_episodes % hyper_params['print_episode_freq'] == 0:
+            freq = hyper_params['print_episode_freq']
             print("---------------------------------------------------------------------")
-            print(f"steps: {t}\tepisodes: {n_episodes}\tepsilon: {epsilon:.4f}")
-            print(f"Mean {hyper_params['print_episode_freq']} episode reward: {np.mean(episode_rewards[-10:]):.2f}")
+            print(f"steps: {t}\tepisodes: {n_episodes}\tepsilon: {epsilon:.4f}\tlr_Q: {agent.lr_Q:.4e}")
+            print(f"Mean {freq} episode  reward: {np.mean(episode_rewards[-freq:]):.2f}")
+            print(f"\t\t Q loss: {np.mean(episode_average_Q_loss[-freq:]):.4f}")
+            print(f"\t\t M loss: {np.mean(episode_average_M_loss[-freq:]):.4f}")
+            print(f"\t\t action value: {np.mean(episode_average_action_value[-freq:]):.4f}")
+            print(f"\t\t steps per episode: {np.mean(episode_steps[-freq:]):.2f}")
             print("---------------------------------------------------------------------")
             
-        # # periodically save DQN/M model weights and list of episode rewards
-        # if (t % hyper_params["save_episode_freq"] == 0):
-        #     this_model_weights_path = model_weights_path + str(int(t/hyper_params["save_freq"])) + ".pth"
-        #     th.save(agent.DQN_learning.state_dict(), this_model_weights_path)
+        # periodically save DQN/M model weights and list of episode rewards
+        if (t % hyper_params["save_episode_freq"] == 0):
+            this_Q_model_weights_path = Q_weights_path + str(int(t/hyper_params["save_freq"])) + ".pth"
+            this_M_model_weights_path = M_weights_path + str(int(t/hyper_params["save_freq"])) + ".pth"
+            th.save(agent.Q_learning.state_dict(), this_Q_model_weights_path)
+            th.save(agent.M.state_dict(), this_M_model_weights_path)
             
-        #     logs = {
-        #         'episode_rewards': episode_rewards,
-        #         'episode_average_action_value': episode_average_action_value,
-        #         'episode_average_loss': episode_average_loss,
-        #         'hyper_params': hyper_params
-        #     }
-        #     with open(logs_path, 'wb') as f:
-        #         pk.dump(logs, f)
+            logs = {
+                'episode_rewards': episode_rewards,
+                'episode_average_action_value': episode_average_action_value,
+                'episode_average_Q_loss': episode_average_Q_loss,
+                'episode_average_M_loss': episode_average_M_loss,
+                'episode_steps': episode_steps,
+                'hyper_params': hyper_params
+            }
+            with open(logs_path, 'wb') as f:
+                pk.dump(logs, f)
                 
-        #     print("-->Saved model weights + logs<--")
+            print("-->Saved model weights + logs<--")
         
 
 
 
 if __name__ == "__main__":
     hyper_params = {
-        'env_names': ["MiniHack-MazeWalk-9x9-v0"],
+        # 'env_names': ["MiniHack-MazeWalk-9x9-v0"],
+        'env_names': ["MiniHack-Room-5x5-v0"],
         'env_action_spaces': [4],
         'env_actions': tuple(actions.CompassCardinalDirection),
         'change_env_episode_freq': 32,
-        'seed': 0,
+        'seed': np.random.randint(0, 2**32),
         'total_steps': int(1e6),
-        'batch_size': 256,
-        'max_replay_buffer_len': int(5e3),
+        'batch_size': 32,
+        'max_replay_buffer_len': 10_000,
         'priority_default': 1e5,
         'alpha': 0.7,
         'beta': 0.7,
         'phi': 0.01,
         'c': 1e4,
-        'gamma': 0.99,
-        'lr': 1e-4,
-        'lamb': 1.,
+        'gamma': 1,
+        'lr_Q': 5e-5,#1e-4,
+        'min_lr_Q': 1e-8,
+        'lr_M': 8e-4,
+        'lamb': 1,
         'learning_starts': 1024,
-        'update_Q_target_steps_freq': 1000,
-        'learning_steps_freq': 32,
-        'planning_starts': 20_000,
+        'update_Q_target_steps_freq': 2048,
+        'learning_steps_freq': 3,
+        'planning_starts': 25_000,
         'planning_batch_size': 512,
         'planning_steps_freq': 10,
         'epsilon_start': 1.0,
         'epsilon_end': 0.01,
-        'steps_epsilon_end': int(1e5),
-        'print_episode_freq': 10,
+        'steps_epsilon_end': 25_000,
+        'print_episode_freq': 5,
         'save_episode_freq': 20_000
     }
     

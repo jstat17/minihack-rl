@@ -22,12 +22,13 @@ class Agent():
     M: DeepModel # dynamics models
     
     gamma: float # discount factor
-    lr: float # learning rate
+    lr_Q: float # learning rate for Q
+    lr_M: float # learning rate for M
     lamb: float # trade-off between M's state and reward losses
     
     def __init__(self, obs_shape: tuple[int], obs_keys: list[str], obs_dtype: np.dtype, act_shape: int, batch_size: int,\
                  max_replay_buffer_len: int, priority_default: float, alpha: float, beta: float, phi: float, c: float,\
-                 gamma: float, lr: float, lamb: float) -> None:
+                 gamma: float, lr_Q: float, lr_M: float, lamb: float) -> None:
         
         self.obs_shape = obs_shape
         self.obs_keys = obs_keys
@@ -45,7 +46,8 @@ class Agent():
         )
         
         self.gamma = gamma
-        self.lr = lr
+        self.lr_Q = lr_Q
+        self.lr_M = lr_M
         self.lamb = lamb
         
         # DQNs
@@ -63,7 +65,7 @@ class Agent():
         self.update_target_network()
         
         self.Q_criterion = lambda y, Q_state_action: th.mean(th.pow(y - Q_state_action, 2))
-        self.Q_optimizer = Adam(self.Q_learning.parameters(), lr=self.lr)
+        self.Q_optimizer = Adam(self.Q_learning.parameters(), lr=self.lr_Q)
         
         # Dynamics Model
         self.M = DeepModel(
@@ -74,7 +76,7 @@ class Agent():
         
         self.M_component_criterion = nn.MSELoss(reduction='none')
         self.M_criterion = lambda L1, L2, lamb=self.lamb: L1 + lamb*L2
-        self.M_opimizer = Adam(self.M.parameters(), lr=self.lr)
+        self.M_optimizer = Adam(self.M.parameters(), lr=self.lr_M)
         
     def reshape_state(self, channels: list[np.ndarray]) -> np.ndarray:
         obs = np.zeros(self.obs_shape, dtype=self.obs_dtype)
@@ -86,7 +88,7 @@ class Agent():
         return obs
     
     def normalize_state(self, state: np.ndarray) -> np.ndarray:
-        max_val = np.iinfo(self.obs_dtype).max
+        max_val = 64 #np.iinfo(self.obs_dtype).max
         min_val = np.iinfo(self.obs_dtype).min
         
         normed = np.zeros_like(state.shape, dtype=np.float32)
@@ -142,7 +144,7 @@ class Agent():
         
         return loss
     
-    def optimise_M_loss(self, state: th.Tensor, action: th.Tensor, reward: th.Tensor, frame_next: th.Tensor) -> tuple[th.Tensor, th.Tensor]:
+    def optimise_M_loss(self, state: th.Tensor, action: th.Tensor, reward: th.Tensor, state_next: th.Tensor) -> tuple[th.Tensor, th.Tensor]:
         """Uses minibatch sample to optimise M dynamics model
 
         Returns:
@@ -150,7 +152,7 @@ class Agent():
         """
         
         self.M.train()
-        self.M_opimizer.zero_grad()
+        self.M_optimizer.zero_grad()
         
         
         # state = th.tensor(
@@ -167,7 +169,7 @@ class Agent():
         
         pred_frame_next, pred_reward = self.M(state, action)
         loss_frame = th.mean(
-            self.M_component_criterion(frame_next, pred_frame_next),
+            self.M_component_criterion(state_next, pred_frame_next),
             dim = (1, 2, 3)
         )
         loss_reward = self.M_component_criterion(reward, pred_reward)
@@ -175,7 +177,7 @@ class Agent():
         losses = self.M_criterion(loss_frame, loss_reward)
         loss = th.mean(losses)
         loss.backward()
-        self.M_opimizer.step()
+        self.M_optimizer.step()
         
         return th.reshape(losses, (-1,)), loss
     
