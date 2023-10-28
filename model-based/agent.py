@@ -4,8 +4,29 @@ from networks import DQN, DeepModel
 import torch as th
 from torch.optim import Adam
 from torch import nn
+from nle.nethack import actions
 
 device = "cuda" if th.cuda.is_available() else "cpu"
+
+get_inv_code = {
+    "potion": 0.1*64,
+    "ring": 0.1*64,
+    "boots": 0.1*64,
+    "horn": 0.25*64,
+    "wand": 0.075*64
+}
+inv_objects_possible = ["potion", "ring", "boots", "horn", "wand"]
+pickup_meta_actions = {
+    "potion": (actions.Command.PICKUP, actions.Command.QUAFF, -1),
+    "ring": (actions.Command.PICKUP, actions.Command.PUTON, -1, ord("r")),
+    "boots": (actions.Command.PICKUP, actions.Command.PUTON, -1),
+    "horn": (actions.Command.PICKUP,),
+    "wand": (actions.Command.PICKUP,)
+}
+tool_meta_actions = {
+    "horn": (actions.Command.APPLY, -1, ord("y"), actions.CompassCardinalDirection.E),
+    "wand": (actions.Command.ZAP, -1, actions.CompassCardinalDirection.E)
+}
 
 
 class Agent():
@@ -25,6 +46,10 @@ class Agent():
     lr_Q: float # learning rate for Q
     lr_M: float # learning rate for M
     lamb: float # trade-off between M's state and reward losses
+    
+    inv: float # agent inventory encoding
+    inv_objs: list[str] # agent's list of objects in inventory
+    tool_hotkeys: dict[list, tuple[int]] # inventory object's activation hotkey
     
     def __init__(self, obs_shape: tuple[int], obs_keys: list[str], obs_dtype: np.dtype, act_shape: int, batch_size: int,\
                  max_replay_buffer_len: int, priority_default: float, alpha: float, beta: float, phi: float, c: float,\
@@ -49,6 +74,10 @@ class Agent():
         self.lr_Q = lr_Q
         self.lr_M = lr_M
         self.lamb = lamb
+        
+        self.inv = 0.
+        self.inv_objs = []
+        self.tool_hotkeys = dict()
         
         # DQNs
         self.Q_target = DQN(
@@ -130,6 +159,9 @@ class Agent():
             Qs_state_next = self.Q_target(state_next)
         Q_max_state_next = th.max(Qs_state_next, dim=1)
         
+        # print(f"{Qs_state.shape = }")
+        # print(f"{Qs_state = }")
+        # print(action)
         y = (
             reward + (self.gamma * th.multiply(Q_max_state_next.values, (1 - done)))
         ).to(device)
@@ -137,6 +169,11 @@ class Agent():
             Qs_state[np.arange(Qs_state.shape[0]), action.tolist()]
         ).to(device)
         
+        # print(f"{y.shape = }")
+        # print(f"{y = }")
+        # print(f"{Q_state_action.shape = }")
+        # print(f"{Q_state_action = }")
+        # print(f"{(y - Q_state_action) = }")
         loss = (self.Q_criterion(y, Q_state_action)).to(device)
         loss.backward()
         
@@ -167,14 +204,14 @@ class Agent():
         # )
         # frame_next = (state_next[:, 0:2, :, :]).to(device)
         
-        pred_frame_next, pred_reward = self.M(state, action)
-        loss_frame = th.mean(
-            self.M_component_criterion(state_next, pred_frame_next),
+        pred_state_next, pred_reward = self.M(state, action)
+        loss_state = th.mean(
+            self.M_component_criterion(state_next, pred_state_next),
             dim = (1, 2, 3)
         )
         loss_reward = self.M_component_criterion(reward, pred_reward)
         
-        losses = self.M_criterion(loss_frame, loss_reward)
+        losses = self.M_criterion(loss_state, loss_reward)
         loss = th.mean(losses)
         loss.backward()
         self.M_optimizer.step()
@@ -195,3 +232,49 @@ class Agent():
             Q_values = self.Q_target(state)
         
         return Q_values
+    
+    def update_inv(self, obj: str) -> None:
+        self.inv += get_inv_code[obj]
+        if obj and obj not in self.inv_objs:
+            self.inv_objs.append(obj)
+        
+    def reset_inv(self) -> None:
+        self.inv = 0.
+        self.inv_objs = []
+        self.tool_hotkeys = dict()
+        
+    @staticmethod
+    def get_text(chars: np.ndarray) -> str:
+        msg = ""
+        for char in chars:
+            if char != 0:
+                msg += chr(char)
+                
+        return msg
+    
+    @staticmethod
+    def get_msg_object(msg: str) -> str:
+        for obj in inv_objects_possible:
+            if obj in msg and "break" not in msg:
+                return obj
+            
+        return ""
+    
+    @staticmethod
+    def chars_to_obj(chars: np.ndarray) -> str:
+        return Agent.get_msg_object(
+            Agent.get_text(chars)
+        )
+        
+    @staticmethod
+    def get_pickup_meta_action(obj: str) -> tuple[int]:
+        return pickup_meta_actions[obj]
+    
+    def get_tool_meta_action(self, obj: str) -> tuple[int]:
+        if obj in self.inv_objs:
+            return tool_meta_actions[obj]
+        else:
+            return (tool_meta_actions[obj][0],)
+        
+    def add_tool_hotkey(self, obj: str, hotkey: int) -> None:
+        self.tool_hotkeys[obj] = hotkey

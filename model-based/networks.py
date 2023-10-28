@@ -30,8 +30,8 @@ class DQN(nn.Module):
         ]
         
         self.enconder = nn.ModuleList()
-        self.enconder.append(self.__conv_block(in_channels=in_chn, out_channels=32, kernel_size=4, stride=1, padding=0, activation=True)) # 16x6x6
-        self.enconder.append(self.__conv_block(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=0, activation=True)) # 32x4x4
+        self.enconder.append(self.__conv_block(in_channels=in_chn, out_channels=32, kernel_size=4, stride=1, padding=0, activation=True)) # 32x6x6
+        self.enconder.append(self.__conv_block(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=0, activation=True)) # 64x4x4
         self.enconder.append(self.__conv_block(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding='same', activation=True)) # 64x4x4
         
         self.sequential = nn.Sequential(*layers)
@@ -54,7 +54,8 @@ class DQN(nn.Module):
         for conv_block in self.enconder:
             x = conv_block(x)
         
-        # x = th.concat([x, state], dim=1)
+        # inv_tens = (inv * th.ones((x.size(0), 1, 4, 4), dtype=th.float32)).to(device)
+        # x = th.concat([x, inv_tens], dim=1)
         
         return self.sequential(x)
     
@@ -81,8 +82,8 @@ class DeepModel(nn.Module):
         self.decoder.append(self.__upscale_conv_block(in_channels=32, out_channels=8, kernel_size=3, stride=1, output_size=(7,7), mode='bilinear', activation=True))
         # concatenate 8 encoder channels
         self.decoder.append(self.__upscale_conv_block(in_channels=16, out_channels=4, kernel_size=3, stride=1, output_size=(9,9), mode='bilinear', activation=True))
-        # concatenate input frames --- 3 output channels, 0-1 are future frame, 2 is reward
-        self.decoder.append(self.__conv_block(in_channels=4, out_channels=3, kernel_size=3, stride=1, padding='same', activation=False))
+        # concatenate input frames --- 4 output channels, 0-1 are future frame, 2 is inventory, 3 is reward
+        self.decoder.append(self.__conv_block(in_channels=4, out_channels=in_chn+1, kernel_size=3, stride=1, padding='same', activation=False))
         
     def __conv_block(self, in_channels: int, out_channels: int, kernel_size: int, stride: int, padding: int | str, activation: bool) -> nn.Sequential:
         layers = [
@@ -126,6 +127,7 @@ class DeepModel(nn.Module):
         action_channel = self.action_embedding(a)
         action_channel = action_channel.view(action_channel.size(0), 1, 3, 3)
         x = th.concat([x, action_channel], dim=1)
+        # x = th.concat([x, inv_tens], dim=1)
         
         # decoder
         for i, upscale_conv_block in enumerate(self.decoder):
@@ -137,8 +139,8 @@ class DeepModel(nn.Module):
             #     x = th.concat([x, state[:, 0:2, :, :]], dim=1)
             
                 
-        state_next = x[:, 0:2, :, :]
-        reward = x[:, 2:, :, :]
+        state_next = x[:, 0:3, :, :]
+        reward = x[:, 3:, :, :]
         reward = nn.functional.adaptive_avg_pool2d(reward, 1)
         
         return state_next, reward.reshape((-1,))

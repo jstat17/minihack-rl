@@ -60,10 +60,10 @@ def main(hyper_params: dict):
     np.random.seed(hyper_params['seed'])
     
     agent = Agent(
-        obs_shape = (2, 9, 9),
+        obs_shape = (3, 9, 9),
         obs_keys = ["pixel", "pixel_crop", "colors_crop", "chars_crop", "message", "tty_cursor"],
         obs_dtype = np.uint8,
-        act_shape = len(hyper_params['env_actions']),
+        act_shape = len(hyper_params['env_available_actions']),
         batch_size = hyper_params['batch_size'],
         max_replay_buffer_len = hyper_params['max_replay_buffer_len'],
         priority_default = hyper_params['priority_default'],
@@ -114,8 +114,28 @@ def main(hyper_params: dict):
             state = np.zeros(agent.obs_shape, agent.obs_dtype)
             state[0] = state_dict['colors_crop']
             state[1] = state_dict['chars_crop']
+            state[2] = agent.inv
             
-            # prev_x = state_dict["tty_cursor"][1]
+            # object available to be immediately picked up
+            obj = agent.chars_to_obj(state_dict["message"])
+            if obj:
+                agent.update_inv(obj)
+                state[2] = agent.inv
+                for i, procedure_action in enumerate(agent.get_pickup_meta_action(obj)):
+                    if procedure_action == -1:
+                        _action = agent.tool_hotkeys[obj]
+                    else:
+                        _action = procedure_action
+                        
+                    _action = hyper_params["env_actions"].index(_action)
+                    _state_dict, _reward, _done, _info = env.step(_action)
+                    if _done:
+                        break
+                    
+                    if i == 0:
+                        msg = agent.get_text(_state_dict["message"])
+                        hotkey = msg[0]
+                        agent.add_tool_hotkey(obj, hotkey)
             
             switch_env = False
             
@@ -125,35 +145,91 @@ def main(hyper_params: dict):
         # epsilon-greedy
         epsilon = epsilon_schedule(t)
         if np.random.random() < epsilon:
-            action = np.random.randint(0, env_num_actions)
+            action_idx = np.random.randint(0, env_num_actions)
         else:
             Q_values = agent.act(state_tensor)[:, :env_num_actions]
             # if t % 10 == 0:
             #     print(Q_values)
-            action = th.argmax(Q_values).item()
+            action_idx = th.argmax(Q_values).item()
             action_value = th.max(Q_values).item()
             
             n_action_values += 1
             episode_average_action_value[-1] += action_value
             
+            
         # agent takes real step in environment
-        state_next_dict, reward, done, _info = env.step(action)
+        # handle meta actions
+        action = hyper_params["env_available_actions"][action_idx]
+        if type(action) == str:
+            if action == "ZAP_META":
+                obj = "wand"
+            elif action == "APPLY_META":
+                obj = "horn"
+            
+            action = agent.get_tool_meta_action(obj)
+            # print(168, f"actions list: {action}")
+            # print(169, agent.inv_objs)
+        else:
+            action = (action,)
+            
+        # convert available to index of all actions:
+        a_temp = []
+        for a in action:
+            if a == -1:
+                # print(agent.inv_objs)
+                # print(agent.tool_hotkeys)
+                _action = agent.tool_hotkeys[obj]
+            else:
+                _action = a
+                
+            # print(f"{_action = }")
+            # if type(_action) == int:
+            #     print(chr(_action))
+            a_temp.append(
+                hyper_params['env_actions'].index(_action)
+            )
+        actions_to_do = tuple(a_temp)
+        
+        for action in actions_to_do:
+            state_next_dict, reward, done, _info = env.step(action)
+            if done:
+                break
+            
         episode_steps[-1] += 1
         
         state_next = np.zeros(agent.obs_shape, agent.obs_dtype)
         state_next[0] = state_next_dict['colors_crop']
         state_next[1] = state_next_dict['chars_crop']
+        state_next[2] = agent.inv
         
-        # curr_x = state_dict["tty_cursor"][1]
-        # x_diff = int(curr_x) - int(prev_x)
-        # if x_diff > 0:
-        #     reward += 0.1
-        # elif x_diff < 0:
-        #     reward += -0.1
+        # object available to be immediately picked up
+        obj = agent.chars_to_obj(state_dict["message"])
+        if obj:
+            agent.update_inv(obj)
+            state[2] = agent.inv
+            for i, procedure_action in enumerate(agent.get_pickup_meta_action(obj)):
+                if procedure_action == -1:
+                    _action = agent.tool_hotkeys[obj]
+                else:
+                    _action = procedure_action
+                    
+                # print(_action)
+                # if type(_action) == int:
+                #     print(chr(_action))
+                _action = hyper_params["env_actions"].index(_action)
+                _state_dict, _reward, _done, _info = env.step(_action)
+                if _done:
+                    break
+                
+                if i == 0:
+                    msg = agent.get_text(_state_dict["message"])
+                    # print("message: ", msg)
+                    hotkey = ord(msg[0])
+                    agent.add_tool_hotkey(obj, hotkey)
 
         agent.replay_buffer.add_to_buffer(
             state = state,
-            action = action,
+            action = action_idx,
             reward = reward,
             state_next = state_next,
             done = float(done)
@@ -184,9 +260,11 @@ def main(hyper_params: dict):
             # otherwise reset current env
             else:
                 state_dict = env.reset()
+                agent.reset_inv()
                 state = np.zeros(agent.obs_shape, agent.obs_dtype)
                 state[0] = state_dict['colors_crop']
                 state[1] = state_dict['chars_crop']
+                state[2] = agent.inv
                 
                 agent.lr_Q = max(agent.lr_Q * 0.985, hyper_params['min_lr_Q'])
                 for g in agent.Q_optimizer.param_groups:
@@ -216,20 +294,23 @@ def main(hyper_params: dict):
             episode_steps.append(0)
 
         if t > 1_000 and t % 2_000 == 0:
-            pred_frame, pred_reward = agent.M(state_tensor, th.tensor([action], dtype=th.int32).to(device))
-            print(f"{pred_reward = }")
-            print(f"dones = {(th.round(th.mean(state_nexts, dim=(1, 2, 3))) < 0.1).type(th.float32)}")
+            pred_frame, pred_reward = agent.M(state_tensor, th.tensor([action_idx], dtype=th.int32).to(device))
+            # print(f"{pred_reward = }")
+            # print(f"dones = {(th.floor(th.sum(pred_frame, dim=(1, 2, 3)))).type(th.float32)}")
+            # print(f"correct done = {done}")
+            # print(f"{pred_frame = }")
             fig = plt.figure(figsize=(12,6))
             ax = plt.subplot(1, 3, 1)
             ax.matshow(old_state[1])
-            ax.set_title(f"Current state, action: {action}")
+            ax.set_title(f"Current state, action: {action_idx}")
             ax = plt.subplot(1, 3, 2)
             ax.matshow(state_next[1])
             ax.set_title("Next state")
             ax = plt.subplot(1, 3, 3)
             ax.matshow(pred_frame[0][1].to("cpu").detach().numpy())
             plt.tight_layout()
-            plt.savefig(f"./runs/img{t}.png", dpi=100)
+            plt.savefig(os.path.join(new_folder_path, f"img{t}.png"), dpi=100)
+            plt.close('all')
             # plt.show()
             
         
@@ -292,7 +373,7 @@ def main(hyper_params: dict):
             
             # use model
             state_nexts, rewards = agent.M(states, actions)
-            dones = (th.round(th.mean(state_nexts, dim=(1, 2, 3))) < 0.1).type(th.float32).to(device)
+            dones = (th.round(th.sum(state_nexts, dim=(1, 2, 3))) < 2).type(th.float32).to(device)
             
             Q_loss = agent.optimise_Q_loss(
                 state = states,
@@ -322,8 +403,8 @@ def main(hyper_params: dict):
             
         # periodically save DQN/M model weights and list of episode rewards
         if (t % hyper_params["save_episode_freq"] == 0):
-            this_Q_model_weights_path = Q_weights_path + str(int(t/hyper_params["save_freq"])) + ".pth"
-            this_M_model_weights_path = M_weights_path + str(int(t/hyper_params["save_freq"])) + ".pth"
+            this_Q_model_weights_path = Q_weights_path + str(int(t/hyper_params["save_episode_freq"])) + ".pth"
+            this_M_model_weights_path = M_weights_path + str(int(t/hyper_params["save_episode_freq"])) + ".pth"
             th.save(agent.Q_learning.state_dict(), this_Q_model_weights_path)
             th.save(agent.M.state_dict(), this_M_model_weights_path)
             
@@ -346,10 +427,13 @@ def main(hyper_params: dict):
 if __name__ == "__main__":
     hyper_params = {
         # 'env_names': ["MiniHack-MazeWalk-9x9-v0"],
-        'env_names': ["MiniHack-Room-5x5-v0"],
-        'env_action_spaces': [4],
-        'env_actions': tuple(actions.CompassCardinalDirection),
-        'change_env_episode_freq': 32,
+        # 'env_names': ["MiniHack-Room-5x5-v0"],
+        'env_names': ["MiniHack-Room-5x5-v0", "MiniHack-LavaCross-Full-v0"],
+        # 'env_action_spaces': [4],
+        'env_action_spaces': [4, 6],
+        'env_actions': tuple(actions.CompassCardinalDirection) + (actions.Command.PICKUP, actions.Command.QUAFF, actions.Command.PUTON, actions.Command.APPLY, actions.Command.ZAP, ord("f"), ord("g"), ord("r"), ord("y")),
+        'env_available_actions': tuple(actions.CompassCardinalDirection) + ("ZAP_META", "APPLY_META"),
+        'change_env_episode_freq': 200,
         'seed': np.random.randint(0, 2**32),
         'total_steps': int(1e6),
         'batch_size': 32,
@@ -367,7 +451,7 @@ if __name__ == "__main__":
         'learning_starts': 1024,
         'update_Q_target_steps_freq': 2048,
         'learning_steps_freq': 3,
-        'planning_starts': 25_000,
+        'planning_starts': 35_000,
         'planning_batch_size': 512,
         'planning_steps_freq': 10,
         'epsilon_start': 1.0,
