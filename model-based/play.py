@@ -84,8 +84,8 @@ def main(h_params: dict):
     video_save_path = os.path.join(new_folder_path, f"{h_params['env_names']}.mp4")
     
     # Q_weights_path = './runs/44/Q-weights-40.pth'
-    Q_weights_path = './runs/44/Q-weights-70.pth'
-    M_weights_path = './runs/44/M-weights-40.pth'
+    Q_weights_path = hyper_params['Q_weights_path']
+    M_weights_path = hyper_params['M_weights_path']
     
     obs_keys = ["pixel", "pixel_crop", "colors_crop", "chars_crop", 
                 "message", "tty_cursor"]
@@ -190,11 +190,15 @@ def main(h_params: dict):
                                  dtype=th.float32)[None, :]
         state_tensor = state_tensor.to(device)
             
-        Q_values = agent.act(state_tensor)[:, :env_num_actions]
-        action_idx = th.argmax(Q_values).item()
-        action_value = th.max(Q_values).item()
-        
-        episode_average_action_value[-1] += action_value
+        # epsilon-greedy
+        epsilon = 0.1
+        if np.random.random() < epsilon:
+            action_idx = np.random.randint(0, env_num_actions)
+        else:
+            Q_values = agent.act(state_tensor)[:, :env_num_actions]
+            action_idx = th.argmax(Q_values).item()
+            action_value = th.max(Q_values).item()
+            episode_average_action_value[-1] += action_value
             
         # agent takes real step in environment
         # handle meta actions
@@ -292,7 +296,7 @@ def main(h_params: dict):
         n_episodes = len(episode_rewards)
 
         # agent fails or wins level
-        if done:
+        if done or t > hyper_params['max_env_timesteps']:
             out.release()  # Release the video writer
             cv2.destroyAllWindows()  # Close any OpenCV windows
             os.remove("temp_frame.png")  # Remove the temporary frame file
@@ -313,7 +317,7 @@ if __name__ == "__main__":
 
     hyper_params = {
         'env_names': "MiniHack-MazeWalk-9x9-v0",
-        'env_action_spaces': 4,
+        'env_action_spaces': 6,
         'env_actions': env_actions,
         'env_available_actions': env_available_actions,
         'change_env_episode_freq': 100,
@@ -341,7 +345,10 @@ if __name__ == "__main__":
         'epsilon_end': 0.0,
         'steps_epsilon_end': 15_000,
         'print_episode_freq': 5,
-        'save_episode_freq': 10_000
+        'save_episode_freq': 10_000,
+        'Q_weights_path': 'Q-weights.pth',
+        'M_weights_path': 'M-weights.pth',
+        'max_env_timesteps': 500
     }
     
     main(hyper_params)

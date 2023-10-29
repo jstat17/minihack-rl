@@ -498,8 +498,8 @@ def main(h_params: dict):
 
 
 if __name__ == "__main__":
-    env_names = ["MiniHack-Room-5x5-v0",
-                 "MiniHack-LavaCross-Full-v0",
+    env_names = ["MiniHack-LavaCross-Full-v0",
+                 "MiniHack-Room-15x15-v0",
                  "MiniHack-MazeWalk-9x9-v0",
                  "MiniHack-Quest-Hard-v0"]
 
@@ -516,12 +516,12 @@ if __name__ == "__main__":
 
     h_params = {
         'env_names': env_names,
-        'env_action_spaces': [6, 6, 6, 6],
+        'env_action_spaces': [6, 4, 4, 6],
         'env_actions': env_actions,
         'env_available_actions': env_available_actions,
         'change_env_episode_freq': 100,
         'seed': np.random.randint(0, 2 ** 32),
-        'total_steps': int(1e6),
+        'total_steps': 200_000,
         'batch_size': 32,
         'max_replay_buffer_len': 10_000,
         'priority_default': 1e5,
@@ -537,11 +537,11 @@ if __name__ == "__main__":
         'learning_starts': 1024,
         'update_Q_target_steps_freq': 2048,
         'learning_steps_freq': 3,
-        'planning_starts': 150_000,
-        'planning_batch_size': 512,
+        'planning_starts': 100_000,
+        'planning_batch_size': 32,
         'planning_steps_freq': 10,
         'epsilon_start': 1.0,
-        'epsilon_end': 0.0,
+        'epsilon_end': 0.1,
         'steps_epsilon_end': 15_000,
         'print_episode_freq': 5,
         'save_episode_freq': 10_000
