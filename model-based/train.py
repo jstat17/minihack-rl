@@ -22,31 +22,41 @@ def linear_schedule(x_start: int,
                     y_start: float,
                     y_end: float) -> Callable[[int], float]:
     """
-    
+    Creates a linear schedule function.
+
     Args:
-        x_start: 
-        x_end: 
-        y_start: 
-        y_end: 
+        x_start: The start x value.
+        x_end: The end x value.
+        y_start: The start y value.
+        y_end: The end y value.
 
     Returns:
-
+        A callable function that takes an x value and returns a y value.
     """
 
     def linear(x: int, a: float, b: float) -> float:
+        """Computes the linear function value at the given x value."""
         return a * x + b
 
     def schedule(x: int,
                  func: Callable[[int], float],
                  x_term: int, y_term: float) -> float:
+        """Schedules the function value at the given x value, with a terminal
+        value at x_term and y_term."""
         if x >= x_term:
             return y_term
         else:
             return func(x)
 
+    # Calculate the slope and y-intercept of the linear function.
     a = (y_end - y_start) / (x_end - x_start)
     b = y_start - a * x_start
+
+    # Create a partial function of the linear function.
     decay_func = partial(linear, a=a, b=b)
+
+    # Create a partial function of the schedule function, with the decay
+    # function and the terminal value.
     sched_func = partial(schedule, func=decay_func, x_term=x_end, y_term=y_end)
 
     return sched_func
@@ -57,10 +67,8 @@ def main(h_params: dict):
     The main training function that will use DQN to train an agent
     
     Args:
-        h_params: All the hyperparameters required to train the agent 
-
-    Returns:
-
+        h_params: A dictionary containing all the hyperparameters required
+            to train the agent.
     """
     # Create save folders and logs for trained models
     parent_folder = './runs/'
@@ -89,9 +97,11 @@ def main(h_params: dict):
 
     np.random.seed(h_params['seed'])
 
+    # Define the observation keys.
     obs_keys = ["pixel", "pixel_crop", "colors_crop", "chars_crop",
                 "message", "tty_cursor"]
 
+    # Create the agent.
     agent = Agent(
         obs_shape=(3, 9, 9),
         obs_keys=obs_keys,
@@ -110,6 +120,8 @@ def main(h_params: dict):
         lamb=h_params['lamb']
     )
 
+    # Initialize the episode rewards, average action values, average Q losses,
+    # average M losses, episode steps, and episode wins.
     episode_rewards = [0.0]
     episode_average_action_value = [0.0]
     n_action_values = 0
@@ -120,10 +132,14 @@ def main(h_params: dict):
     episode_steps = [0]
     episode_win = [0]
 
+    # Set switching environments flag
     switch_env = True
+    # Initialize the environment counter.
     env_counter = 0
+    # Number of environments.
     n_envs = len(h_params['env_names'])
 
+    # Start training the agent.
     for t in range(1, h_params['total_steps']):
         if switch_env:
             # agent.replay_buffer.reset_buffer()
