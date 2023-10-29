@@ -32,7 +32,7 @@ using `environment.yml`.
 > since it will be much easier to install.
 
 To run the model-based (DQN):
- - first to train the agent run: `python train.py`
+ - to train the agent: `python train.py`
  - the to watch the agent in action: `python play.py`
 
 To run the model-free (PPO):
