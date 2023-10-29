@@ -1,3 +1,8 @@
+__author__ = "John Statheros (1828326)"
+__maintainer__ = "Timothy Reeder (455840)"
+__version__ = '0.1.0'
+__status__ = 'Development'
+
 import numpy as np
 from replay_buffer import ReplayBuffer
 from networks import DQN, DeepModel
@@ -8,6 +13,7 @@ from nle.nethack import actions
 
 device = "cuda" if th.cuda.is_available() else "cpu"
 
+#
 get_inv_code = {
     "potion": 0.1*64,
     "ring": 0.1*64,
@@ -24,36 +30,85 @@ pickup_meta_actions = {
     "wand": (actions.Command.PICKUP,)
 }
 tool_meta_actions = {
-    "horn": (actions.Command.APPLY, -1, ord("y"), actions.CompassCardinalDirection.E),
+    "horn": (actions.Command.APPLY, -1, ord("y"),
+             actions.CompassCardinalDirection.E),
     "wand": (actions.Command.ZAP, -1, actions.CompassCardinalDirection.E)
 }
 
 
-class Agent():
-    obs_shape: tuple[int] # observation shape
-    obs_keys: list[str] # list of keys to index minihack observations
-    obs_dtype: np.dtype # dtype of observations
-    act_shape: int # number of actions the agent can choose from
+class Agent:
+    # observation shape
+    obs_shape: tuple[int]
+    # list of keys to index minihack observations
+    obs_keys: list[str]
+    # dtype of observations
+    obs_dtype: np.dtype
+    # number of actions the agent can choose from
+    act_shape: int
+
+    # number of samples to draw from replay buffer
+    batch_size: int
+    # replay buffer
+    replay_buffer: ReplayBuffer
+
+    # DQN used for target values, periodically updated
+    Q_target: DQN
+    # DQN that is directly trained
+    Q_learning: DQN
+    # dynamics models
+    M: DeepModel
+
+    # discount factor
+    gamma: float
+    # learning rate for Q
+    lr_Q: float
+    # learning rate for M
+    lr_M: float
+    # trade-off between M's state and reward losses
+    lamb: float
+
+    # agent inventory encoding
+    inv: float
+    # agent's list of objects in inventory
+    inv_objs: list[str]
+    # inventory object's activation hotkey
+    tool_hotkeys: dict[list, tuple[int]]
     
-    batch_size: int # number of samples to draw from replay buffer
-    replay_buffer: ReplayBuffer # replay buffer
-    
-    Q_target: DQN # DQN used for target values, periodically updated
-    Q_learning: DQN # DQN that is directly trained
-    M: DeepModel # dynamics models
-    
-    gamma: float # discount factor
-    lr_Q: float # learning rate for Q
-    lr_M: float # learning rate for M
-    lamb: float # trade-off between M's state and reward losses
-    
-    inv: float # agent inventory encoding
-    inv_objs: list[str] # agent's list of objects in inventory
-    tool_hotkeys: dict[list, tuple[int]] # inventory object's activation hotkey
-    
-    def __init__(self, obs_shape: tuple[int], obs_keys: list[str], obs_dtype: np.dtype, act_shape: int, batch_size: int,\
-                 max_replay_buffer_len: int, priority_default: float, alpha: float, beta: float, phi: float, c: float,\
-                 gamma: float, lr_Q: float, lr_M: float, lamb: float) -> None:
+    def __init__(self,
+                 obs_shape: tuple[int],
+                 obs_keys: list[str],
+                 obs_dtype: np.dtype,
+                 act_shape: int,
+                 batch_size: int,
+                 max_replay_buffer_len: int,
+                 priority_default: float,
+                 alpha: float,
+                 beta: float,
+                 phi: float,
+                 c: float,
+                 gamma: float,
+                 lr_Q: float,
+                 lr_M: float,
+                 lamb: float) -> None:
+        """
+
+        Args:
+            obs_shape:
+            obs_keys:
+            obs_dtype:
+            act_shape:
+            batch_size:
+            max_replay_buffer_len:
+            priority_default:
+            alpha:
+            beta:
+            phi:
+            c:
+            gamma:
+            lr_Q:
+            lr_M:
+            lamb:
+        """
         
         self.obs_shape = obs_shape
         self.obs_keys = obs_keys
@@ -267,7 +322,7 @@ class Agent():
         )
         
     @staticmethod
-    def get_pickup_meta_action(obj: str) -> tuple[int]:
+    def get_pickup_action(obj: str) -> tuple[int]:
         return pickup_meta_actions[obj]
     
     def get_tool_meta_action(self, obj: str) -> tuple[int]:

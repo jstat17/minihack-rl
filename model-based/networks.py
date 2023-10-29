@@ -1,3 +1,8 @@
+__author__ = "John Statheros (1828326)"
+__maintainer__ = "Timothy Reeder (455840)"
+__version__ = '0.1.0'
+__status__ = 'Development'
+
 import torch as th
 from torch import nn
 

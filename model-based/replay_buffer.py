@@ -1,25 +1,49 @@
+__author__ = "John Statheros (1828326)"
+__maintainer__ = "Timothy Reeder (455840)"
+__version__ = '0.1.0'
+__status__ = 'Development'
+
 import numpy as np
-from typing import Iterable
-import matplotlib.pyplot as plt
 
 
-class ReplayBuffer():
-    max_replay_buffer_len: int # maximum replay buffer length
-    priority_default: float # the starting priority for each transition
-    
-    buffer: list[tuple[np.ndarray, int, float, np.ndarray, float]] # the buffer of transitions
-    n_visits: list[int] # the number of visits to each transition
-    model_loss: list[float] # the loss computed on the dynamics model for this transition
-    priority: list[float] # the priority for retraining on this transition
+class ReplayBuffer:
+    # maximum replay buffer length
+    max_replay_buffer_len: int
+    # the starting priority for each transition
+    priority_default: float
+
+    # the buffer of transitions
+    buffer: list[tuple[np.ndarray, int, float, np.ndarray, float]]
+    # the number of visits to each transition
+    n_visits: list[int]
+    # the loss computed on the dynamics model for this transition
+    model_loss: list[float]
+    # the priority for retraining on this transition
+    priority: list[float]
     
     # curious-adversarial parameters
     alpha: float
     beta: float
     phi: float
     c: float
-    
-    
-    def __init__(self, max_replay_buffer_len: int, priority_default: float, alpha: float, beta: float, phi: float, c: float) -> None:
+
+    def __init__(self,
+                 max_replay_buffer_len: int,
+                 priority_default: float,
+                 alpha: float,
+                 beta: float,
+                 phi: float,
+                 c: float) -> None:
+        """
+
+        Args:
+            max_replay_buffer_len: maximum replay buffer length
+            priority_default: the starting priority for each transition
+            alpha: curious-adversarial parameter alpha
+            beta: curious-adversarial parameter beta
+            phi: curious-adversarial parameter phi
+            c: curious-adversarial parameter c
+        """
         self.max_replay_buffer_len = max_replay_buffer_len + 1
         self.priority_default = priority_default
         
@@ -33,7 +57,22 @@ class ReplayBuffer():
         self.phi = phi
         self.c = c
         
-    def add_to_buffer(self, state: np.ndarray, action: int, reward: float, state_next: np.ndarray, done: float) -> None:
+    def add_to_buffer(self,
+                      state: np.ndarray,
+                      action: int,
+                      reward: float,
+                      state_next:
+                      np.ndarray,
+                      done: float) -> None:
+        """
+        
+        Args:
+            state: 
+            action: 
+            reward: 
+            state_next: 
+            done: 
+        """
         transition = (state, action, reward, state_next, done)
         
         self.buffer.append(transition)
@@ -48,6 +87,14 @@ class ReplayBuffer():
             self.priority.pop(0)
             
     def __encode(self, idxs: np.ndarray) -> tuple[np.ndarray]:
+        """
+        Function to encode environment
+        Args:
+            idxs: indexes
+
+        Returns:
+            environment in a tuple of arrays
+        """
         states, actions, rewards, state_nexts, dones = [], [], [], [], []
         for idx in idxs:
             state, action, reward, state_next, done = self.buffer[idx]
@@ -71,11 +118,9 @@ class ReplayBuffer():
         norm_priority /= np.sum(norm_priority)
         
         all_idxs = np.arange(0, len(self.buffer))
-        idxs = np.random.choice(
-            all_idxs,
-            size = batch_size,
-            p = norm_priority
-        )
+        idxs = np.random.choice(all_idxs,
+                                size=batch_size,
+                                p=norm_priority)
         
         return idxs, self.__encode(idxs)
     
@@ -84,9 +129,10 @@ class ReplayBuffer():
         n_vists = np.array(self.n_visits, dtype=np.float32)[idxs]
         model_loss = np.abs(np.array(self.model_loss, dtype=np.float32)[idxs])
         
-        return self.c * np.power(self.beta, n_vists) + np.power(model_loss + self.phi, self.alpha)
+        return self.c * np.power(self.beta, n_vists) + \
+            np.power(model_loss + self.phi, self.alpha)
     
-    def update_priority(self, idxs: np.ndarray, model_losses: Iterable) -> None:
+    def update_priority(self, idxs: np.ndarray, model_losses) -> None:
         for i, idx in enumerate(idxs):
             self.n_visits[idx] += 1
             self.model_loss[idx] = model_losses[i].to("cpu").item()
@@ -94,9 +140,6 @@ class ReplayBuffer():
         new_priorities = self.__calculate_priority(idxs)
         for i, idx in enumerate(idxs):
             self.priority[idx] = new_priorities[i]
-            
-        # plt.hist(self.priority)
-        # plt.show()
         
     def reset_buffer(self) -> None:
         self.buffer = []

@@ -1,3 +1,8 @@
+__author__ = "John Statheros (1828326)"
+__maintainer__ = "Timothy Reeder (455840)"
+__version__ = '0.1.0'
+__status__ = 'Development'
+
 import minihack
 from agent import Agent, device
 import torch as th
@@ -25,7 +30,7 @@ def scale_observation(observation, new_size):
     """
     return pygame.transform.scale(observation, new_size)
 
-# Function to render the game observation
+
 def render(obs, screen, font, text_color):
     """
     Render the game observation on the Pygame screen.
@@ -53,8 +58,7 @@ def render(obs, screen, font, text_color):
     pygame.display.flip()
 
     
-
-def main(hyper_params: dict):
+def main(h_params: dict):
     # Create save folders and logs for trained models
     parent_folder = './videos/'
 
@@ -76,28 +80,31 @@ def main(hyper_params: dict):
     os.makedirs(new_folder_path)
     print(f'Created folder: {new_folder_path}')
     
-    video_save_path = os.path.join(new_folder_path, f"{hyper_params['env_names']}.mp4")
+    video_save_path = os.path.join(new_folder_path, f"{h_params['env_names']}.mp4")
     
     # Q_weights_path = './runs/44/Q-weights-40.pth'
     Q_weights_path = './runs/44/Q-weights-70.pth'
     M_weights_path = './runs/44/M-weights-40.pth'
     
+    obs_keys = ["pixel", "pixel_crop", "colors_crop", "chars_crop", 
+                "message", "tty_cursor"]
+    
     agent = Agent(
-        obs_shape = (3, 9, 9),
-        obs_keys = ["pixel", "pixel_crop", "colors_crop", "chars_crop", "message", "tty_cursor"],
-        obs_dtype = np.uint8,
-        act_shape = len(hyper_params['env_available_actions']),
-        batch_size = hyper_params['batch_size'],
-        max_replay_buffer_len = hyper_params['max_replay_buffer_len'],
-        priority_default = hyper_params['priority_default'],
-        alpha = hyper_params['alpha'],
-        beta = hyper_params['beta'],
-        phi = hyper_params['phi'],
-        c = hyper_params['c'],
-        gamma = hyper_params['gamma'],
-        lr_Q = hyper_params['lr_Q'],
-        lr_M = hyper_params['lr_M'],
-        lamb = hyper_params['lamb']
+        obs_shape=(3, 9, 9),
+        obs_keys=obs_keys,
+        obs_dtype=np.uint8,
+        act_shape=len(h_params['env_available_actions']),
+        batch_size=h_params['batch_size'],
+        max_replay_buffer_len=h_params['max_replay_buffer_len'],
+        priority_default=h_params['priority_default'],
+        alpha=h_params['alpha'],
+        beta=h_params['beta'],
+        phi=h_params['phi'],
+        c=h_params['c'],
+        gamma=h_params['gamma'],
+        lr_Q=h_params['lr_Q'],
+        lr_M=h_params['lr_M'],
+        lamb=h_params['lamb']
     )
     
     agent.Q_target.load_state_dict(th.load(Q_weights_path))
@@ -108,36 +115,38 @@ def main(hyper_params: dict):
     episode_average_action_value = [0.0]
     episode_steps = [0]
     
-    env = gym.make(
-        hyper_params['env_names'],
-        observation_keys = tuple(agent.obs_keys),
-        actions = hyper_params['env_actions'],
-        reward_win = 50.0,
-        reward_lose = -2.5,
-        penalty_step = -0.5,
-        max_episode_steps = 500,
-        penalty_time = -0.05
-    )
+    env = gym.make(h_params['env_names'],
+                   observation_keys=tuple(agent.obs_keys),
+                   actions=h_params['env_actions'],
+                   reward_win=50.0,
+                   reward_lose=-2.5,
+                   penalty_step=-0.5,
+                   max_episode_steps=500,
+                   penalty_time=-0.05)
     max_reward = 50
     
-    env_num_actions = hyper_params['env_action_spaces']
+    env_num_actions = h_params['env_action_spaces']
     
     # setup video
     frame_width = env.observation_space["pixel"].shape[1]
     frame_height = env.observation_space["pixel"].shape[0]
-    pygame_frame_rate=1
-    video_frame_rate=5
+    pygame_frame_rate = 1
+    video_frame_rate = 5
     
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(str(video_save_path), fourcc=fourcc, fps=video_frame_rate, frameSize=(frame_width, frame_height), apiPreference=cv2.CAP_FFMPEG)
+    out = cv2.VideoWriter(str(video_save_path),
+                          fourcc=fourcc,
+                          fps=video_frame_rate,
+                          frameSize=(frame_width,
+                                     frame_height),
+                          apiPreference=cv2.CAP_FFMPEG)
 
     pygame.init()
     screen = pygame.display.set_mode((frame_width, frame_height))
     font = pygame.font.Font(None, 36)
     text_color = (255, 255, 255)
     
-    # start agent
-            
+    # ***************************** Start Agent *****************************
     state_dict = env.reset()
     clock = pygame.time.Clock()
     state = np.zeros(agent.obs_shape, agent.obs_dtype)
@@ -150,13 +159,13 @@ def main(hyper_params: dict):
     if obj:
         agent.update_inv(obj)
         state[2] = agent.inv
-        for i, procedure_action in enumerate(agent.get_pickup_meta_action(obj)):
+        for i, procedure_action in enumerate(agent.get_pickup_action(obj)):
             if procedure_action == -1:
                 _action = agent.tool_hotkeys[obj]
             else:
                 _action = procedure_action
                 
-            _action = hyper_params["env_actions"].index(_action)
+            _action = h_params["env_actions"].index(_action)
             _state_dict, _reward, _done, _info = env.step(_action)
             render(_state_dict, screen, font, text_color)
 
@@ -175,8 +184,9 @@ def main(hyper_params: dict):
                 hotkey = ord(msg[0])
                 agent.add_tool_hotkey(obj, hotkey)
     
-    for t in range(1, hyper_params['total_steps']):
-        state_tensor = th.tensor(agent.normalize_state(state), dtype=th.float32)[None, :]
+    for t in range(1, h_params['total_steps']):
+        state_tensor = th.tensor(agent.normalize_state(state),
+                                 dtype=th.float32)[None, :]
         state_tensor = state_tensor.to(device)
             
         Q_values = agent.act(state_tensor)[:, :env_num_actions]
@@ -185,10 +195,9 @@ def main(hyper_params: dict):
         
         episode_average_action_value[-1] += action_value
             
-            
         # agent takes real step in environment
         # handle meta actions
-        action = hyper_params["env_available_actions"][action_idx]
+        action = h_params["env_available_actions"][action_idx]
         if type(action) == str:
             # print("meta")
             if action == "ZAP_META":
@@ -215,7 +224,7 @@ def main(hyper_params: dict):
             #     print(chr(_action))
             try:
                 a_temp.append(
-                    hyper_params['env_actions'].index(_action)
+                    h_params['env_actions'].index(_action)
                 )
             except ValueError:
                 continue
@@ -247,7 +256,7 @@ def main(hyper_params: dict):
         if obj:
             agent.update_inv(obj)
             state[2] = agent.inv
-            for i, procedure_action in enumerate(agent.get_pickup_meta_action(obj)):
+            for i, procedure_action in enumerate(agent.get_pickup_action(obj)):
                 if procedure_action == -1:
                     _action = agent.tool_hotkeys[obj]
                 else:
@@ -256,7 +265,7 @@ def main(hyper_params: dict):
                 # print(_action)
                 # if type(_action) == int:
                 #     print(chr(_action))
-                _action = hyper_params["env_actions"].index(_action)
+                _action = h_params["env_actions"].index(_action)
                 _state_dict, _reward, _done, _info = env.step(_action)
                 render(_state_dict, screen, font, text_color)
 
@@ -280,26 +289,32 @@ def main(hyper_params: dict):
         state = state_next
         episode_rewards[-1] += reward
         n_episodes = len(episode_rewards)
-        
-        
+
         # agent fails or wins level
         if done:
             out.release()  # Release the video writer
             cv2.destroyAllWindows()  # Close any OpenCV windows
             os.remove("temp_frame.png")  # Remove the temporary frame file
             break
-            
 
 
 if __name__ == "__main__":
-    hyper_params = {
+    env_actions = tuple(actions.CompassCardinalDirection) + \
+        (actions.Command.PICKUP,
+         actions.Command.QUAFF,
+         actions.Command.PUTON,
+         actions.Command.APPLY,
+         actions.Command.ZAP,
+         ord("f"), ord("g"), ord("r"), ord("y"))
+
+    env_available_actions = tuple(actions.CompassCardinalDirection) + \
+        ("ZAP_META", "APPLY_META")
+
+    h_params = {
         'env_names': "MiniHack-MazeWalk-9x9-v0",
-        # 'env_names': "MiniHack-Room-5x5-v0",
-        # 'env_names': "MiniHack-LavaCross-Full-v0",
-        # 'env_action_spaces': 6,
         'env_action_spaces': 4,
-        'env_actions': tuple(actions.CompassCardinalDirection) + (actions.Command.PICKUP, actions.Command.QUAFF, actions.Command.PUTON, actions.Command.APPLY, actions.Command.ZAP, ord("f"), ord("g"), ord("r"), ord("y")),
-        'env_available_actions': tuple(actions.CompassCardinalDirection) + ("ZAP_META", "APPLY_META"),
+        'env_actions': env_actions,
+        'env_available_actions': env_available_actions,
         'change_env_episode_freq': 100,
         'seed': np.random.randint(0, 2**32),
         'total_steps': int(1e6),
@@ -311,8 +326,7 @@ if __name__ == "__main__":
         'phi': 0.01,
         'c': 1e4,
         'gamma': 1,
-        'lr_Q': 5e-5,#1e-4,
-        # 'lr_Q': 5e-6,
+        'lr_Q': 5e-5,
         'min_lr_Q': 1e-8,
         'lr_M': 8e-4,
         'lamb': 0.2,
@@ -324,10 +338,9 @@ if __name__ == "__main__":
         'planning_steps_freq': 10,
         'epsilon_start': 1.0,
         'epsilon_end': 0.0,
-        # 'steps_epsilon_end': 25_000,
         'steps_epsilon_end': 15_000,
         'print_episode_freq': 5,
         'save_episode_freq': 10_000
     }
     
-    main(hyper_params)
+    main(h_params)
