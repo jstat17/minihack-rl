@@ -316,7 +316,7 @@ if __name__ == "__main__":
         ("ZAP_META", "APPLY_META")
 
     hyper_params = {
-        'env_names': "MiniHack-MazeWalk-9x9-v0",
+        'env_names': "MiniHack-LavaCross-Full-v0",
         'env_action_spaces': 6,
         'env_actions': env_actions,
         'env_available_actions': env_available_actions,

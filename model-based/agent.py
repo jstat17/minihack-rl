@@ -344,7 +344,7 @@ class Agent:
         )
         
     @staticmethod
-    def get_pickup_action(obj: str) -> tuple[int]:
+    def get_pickup_meta_action(obj: str) -> tuple[int]:
         return pickup_meta_actions[obj]
     
     def get_tool_meta_action(self, obj: str) -> tuple[int]:

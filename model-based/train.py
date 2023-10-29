@@ -174,6 +174,7 @@ def main(h_params: dict):
             # object available to be immediately picked up
             obj = agent.chars_to_obj(state_dict["message"])
             if obj:
+                reward += 25.
                 agent.update_inv(obj)
                 state[2] = agent.inv
                 for i, procedure_action in enumerate(
