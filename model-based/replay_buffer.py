@@ -97,3 +97,9 @@ class ReplayBuffer():
             
         # plt.hist(self.priority)
         # plt.show()
+        
+    def reset_buffer(self) -> None:
+        self.buffer = []
+        self.n_visits = []
+        self.model_loss = []
+        self.priority = []

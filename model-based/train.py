@@ -85,6 +85,7 @@ def main(hyper_params: dict):
     n_Q_updates = 0
     n_M_updates = 0
     episode_steps = [0]
+    episode_win = [0]
     
     switch_env = True
     env_counter = 0
@@ -92,6 +93,10 @@ def main(hyper_params: dict):
     
     for t in range(1, hyper_params['total_steps']):
         if switch_env:
+            # agent.replay_buffer.reset_buffer()
+            if t > 10:
+                hyper_params['epsilon_start'] *= 0.9
+                
             epsilon_schedule = linear_schedule(
                 x_start = t,
                 x_end = t + hyper_params['steps_epsilon_end'],
@@ -103,10 +108,13 @@ def main(hyper_params: dict):
                 hyper_params['env_names'][env_counter],
                 observation_keys = tuple(agent.obs_keys),
                 actions = hyper_params['env_actions'],
-                reward_lose = -1.0,
-                penalty_step = -0.1,
-                # penalty_time = -0.001
+                reward_win = 50.0,
+                reward_lose = -2.5,
+                penalty_step = -0.5,
+                max_episode_steps = 500,
+                penalty_time = -0.05
             )
+            max_reward = 50
             
             env_num_actions = hyper_params['env_action_spaces'][env_counter]
             
@@ -138,6 +146,7 @@ def main(hyper_params: dict):
                         agent.add_tool_hotkey(obj, hotkey)
             
             switch_env = False
+            n_wins = 0
             
         state_tensor = th.tensor(agent.normalize_state(state), dtype=th.float32)[None, :]
         state_tensor = state_tensor.to(device)
@@ -161,6 +170,7 @@ def main(hyper_params: dict):
         # handle meta actions
         action = hyper_params["env_available_actions"][action_idx]
         if type(action) == str:
+            # print("meta")
             if action == "ZAP_META":
                 obj = "wand"
             elif action == "APPLY_META":
@@ -185,22 +195,30 @@ def main(hyper_params: dict):
             # print(f"{_action = }")
             # if type(_action) == int:
             #     print(chr(_action))
-            a_temp.append(
-                hyper_params['env_actions'].index(_action)
-            )
+            try:
+                a_temp.append(
+                    hyper_params['env_actions'].index(_action)
+                )
+            except ValueError:
+                continue
         actions_to_do = tuple(a_temp)
         
         for action in actions_to_do:
             state_next_dict, reward, done, _info = env.step(action)
             if done:
                 break
-            
+        if done and reward > 0.5:
+            n_wins += 1
+            episode_win[-1] = 1
+            # print("win")
         episode_steps[-1] += 1
         
         state_next = np.zeros(agent.obs_shape, agent.obs_dtype)
         state_next[0] = state_next_dict['colors_crop']
         state_next[1] = state_next_dict['chars_crop']
         state_next[2] = agent.inv
+        # if agent.inv > 0:
+        #     print(state_next[2])
         
         # object available to be immediately picked up
         obj = agent.chars_to_obj(state_dict["message"])
@@ -230,7 +248,7 @@ def main(hyper_params: dict):
         agent.replay_buffer.add_to_buffer(
             state = state,
             action = action_idx,
-            reward = reward,
+            reward = reward/max_reward,
             state_next = state_next,
             done = float(done)
         )
@@ -253,9 +271,11 @@ def main(hyper_params: dict):
                 switch_env = True
                 env_counter  = (env_counter + 1) % n_envs
                 
+                hyper_params['lr_Q'] *= 0.1
+                hyper_params['lr_M'] *= 0.5
                 agent.lr_Q = hyper_params['lr_Q']
-                hyper_params['learning_starts'] += t
-                hyper_params['planning_starts'] += t
+                # hyper_params['learning_starts'] += t
+                # hyper_params['planning_starts'] += t
             
             # otherwise reset current env
             else:
@@ -292,6 +312,7 @@ def main(hyper_params: dict):
             n_M_updates = 0
             
             episode_steps.append(0)
+            episode_win.append(0)
 
         if t > 1_000 and t % 2_000 == 0:
             pred_frame, pred_reward = agent.M(state_tensor, th.tensor([action_idx], dtype=th.int32).to(device))
@@ -392,14 +413,16 @@ def main(hyper_params: dict):
         # printing logs
         if done and n_episodes % hyper_params['print_episode_freq'] == 0:
             freq = hyper_params['print_episode_freq']
-            print("---------------------------------------------------------------------")
-            print(f"steps: {t}\tepisodes: {n_episodes}\tepsilon: {epsilon:.4f}\tlr_Q: {agent.lr_Q:.4e}")
+            print("------------------------------------------------------------------------------------------------")
+            print(f"env: {hyper_params['env_names'][env_counter]} steps: {t}\tepisodes: {n_episodes}\tepsilon: {epsilon:.4f}\tlr_Q: {agent.lr_Q:.4e}")
             print(f"Mean {freq} episode  reward: {np.mean(episode_rewards[-freq:]):.2f}")
-            print(f"\t\t Q loss: {np.mean(episode_average_Q_loss[-freq:]):.4f}")
-            print(f"\t\t M loss: {np.mean(episode_average_M_loss[-freq:]):.4f}")
-            print(f"\t\t action value: {np.mean(episode_average_action_value[-freq:]):.4f}")
+            print(f"\t\t Q loss: {np.mean(episode_average_Q_loss[-freq:]):.6f}")
+            print(f"\t\t M loss: {np.mean(episode_average_M_loss[-freq:]):.6f}")
+            print(f"\t\t action value: {np.mean(episode_average_action_value[-freq:]):.6f}")
             print(f"\t\t steps per episode: {np.mean(episode_steps[-freq:]):.2f}")
-            print("---------------------------------------------------------------------")
+            print(f"wins: {n_wins} / {freq}")
+            print("------------------------------------------------------------------------------------------------")
+            n_wins = 0
             
         # periodically save DQN/M model weights and list of episode rewards
         if (t % hyper_params["save_episode_freq"] == 0):
@@ -414,6 +437,7 @@ def main(hyper_params: dict):
                 'episode_average_Q_loss': episode_average_Q_loss,
                 'episode_average_M_loss': episode_average_M_loss,
                 'episode_steps': episode_steps,
+                'episode_win': episode_win,
                 'hyper_params': hyper_params
             }
             with open(logs_path, 'wb') as f:
@@ -428,12 +452,13 @@ if __name__ == "__main__":
     hyper_params = {
         # 'env_names': ["MiniHack-MazeWalk-9x9-v0"],
         # 'env_names': ["MiniHack-Room-5x5-v0"],
-        'env_names': ["MiniHack-Room-5x5-v0", "MiniHack-LavaCross-Full-v0"],
+        # 'env_names': ["MiniHack-Room-5x5-v0", "MiniHack-LavaCross-Full-v0"],
+        'env_names': ["MiniHack-Room-5x5-v0", "MiniHack-LavaCross-Full-v0", "MiniHack-MazeWalk-9x9-v0"],
         # 'env_action_spaces': [4],
-        'env_action_spaces': [4, 6],
+        'env_action_spaces': [4, 6, 4],
         'env_actions': tuple(actions.CompassCardinalDirection) + (actions.Command.PICKUP, actions.Command.QUAFF, actions.Command.PUTON, actions.Command.APPLY, actions.Command.ZAP, ord("f"), ord("g"), ord("r"), ord("y")),
         'env_available_actions': tuple(actions.CompassCardinalDirection) + ("ZAP_META", "APPLY_META"),
-        'change_env_episode_freq': 200,
+        'change_env_episode_freq': 100,
         'seed': np.random.randint(0, 2**32),
         'total_steps': int(1e6),
         'batch_size': 32,
@@ -445,20 +470,22 @@ if __name__ == "__main__":
         'c': 1e4,
         'gamma': 1,
         'lr_Q': 5e-5,#1e-4,
+        # 'lr_Q': 5e-6,
         'min_lr_Q': 1e-8,
         'lr_M': 8e-4,
-        'lamb': 1,
+        'lamb': 0.2,
         'learning_starts': 1024,
         'update_Q_target_steps_freq': 2048,
         'learning_steps_freq': 3,
-        'planning_starts': 35_000,
+        'planning_starts': 150_000,
         'planning_batch_size': 512,
         'planning_steps_freq': 10,
         'epsilon_start': 1.0,
         'epsilon_end': 0.01,
-        'steps_epsilon_end': 25_000,
+        # 'steps_epsilon_end': 25_000,
+        'steps_epsilon_end': 15_000,
         'print_episode_freq': 5,
-        'save_episode_freq': 20_000
+        'save_episode_freq': 10_000
     }
     
     main(hyper_params)
