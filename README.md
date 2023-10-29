@@ -38,16 +38,11 @@ To run the model-free (PPO):
  
  ## Videos
  [Model-based DQN 5x5 Room](https://youtu.be/acILsdC6gnE)
-<iframe width="560" height="315" src="https://www.youtube.com/embed/acILsdC6gnE" frameborder="0" allowfullscreen></iframe>
 
 [Model-based DQN 15x15 Room](https://youtu.be/BQE8mxJ-8iM)
-<iframe width="560" height="315" src="https://www.youtube.com/embed/BQE8mxJ-8iM" frameborder="0" allowfullscreen></iframe>
 
 [Model-based DQN Lava Crossing](https://youtu.be/Fsep9nxeWdk)
-<iframe width="560" height="315" src="https://www.youtube.com/embed/Fsep9nxeWdk" frameborder="0" allowfullscreen></iframe>
 
  [PPO 5x5 Room](https://youtu.be/xuX97WvH9X8)
-<iframe width="560" height="315" src="https://www.youtube.com/embed/xuX97WvH9X8" frameborder="0" allowfullscreen></iframe>
 
 [PPO 15x15 Room](https://youtu.be/PjIjixezrzQ)
-<iframe width="560" height="315" src="https://www.youtube.com/embed/PjIjixezrzQ" frameborder="0" allowfullscreen></iframe>
