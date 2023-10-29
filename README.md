@@ -48,4 +48,4 @@ To run the model-free (PPO):
 
 [PPO 15x15 Room](https://youtu.be/PjIjixezrzQ)
 
-[PPO 15x15 Room](https://youtu.be/t8p_ZXvPNHw)
+[PPO Lava Crossing](https://youtu.be/t8p_ZXvPNHw)
