@@ -31,6 +31,7 @@ using `environment.yml`.
 To run the model-based (DQN):
  - to train the agent: `python train.py`
  - the to watch the agent in action: `python play.py`
+ - The model-based DQN agent has a list of environment names and a list of environment actions it iterates through (env_names and env_action_spaces). Choose the ones to train on in order.
 
 To run the model-free (PPO):
  - to train the agent: `python Multi_room_PPO_training.py`
