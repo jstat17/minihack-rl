@@ -112,7 +112,7 @@ def main(hyper_params: dict):
                 reward_lose = -2.5,
                 penalty_step = -0.5,
                 max_episode_steps = 500,
-                penalty_time = -0.05
+                penalty_time = -0.5
             )
             max_reward = 50
             
@@ -142,7 +142,7 @@ def main(hyper_params: dict):
                     
                     if i == 0:
                         msg = agent.get_text(_state_dict["message"])
-                        hotkey = msg[0]
+                        hotkey = ord(msg[0])
                         agent.add_tool_hotkey(obj, hotkey)
             
             switch_env = False
@@ -453,9 +453,9 @@ if __name__ == "__main__":
         # 'env_names': ["MiniHack-MazeWalk-9x9-v0"],
         # 'env_names': ["MiniHack-Room-5x5-v0"],
         # 'env_names': ["MiniHack-Room-5x5-v0", "MiniHack-LavaCross-Full-v0"],
-        'env_names': ["MiniHack-Room-5x5-v0", "MiniHack-LavaCross-Full-v0", "MiniHack-MazeWalk-9x9-v0"],
+        'env_names': ["MiniHack-Room-5x5-v0", "MiniHack-LavaCross-Full-v0", "MiniHack-MazeWalk-9x9-v0", "MiniHack-Quest-Hard-v0"],
         # 'env_action_spaces': [4],
-        'env_action_spaces': [4, 6, 4],
+        'env_action_spaces': [6, 6, 6, 6],
         'env_actions': tuple(actions.CompassCardinalDirection) + (actions.Command.PICKUP, actions.Command.QUAFF, actions.Command.PUTON, actions.Command.APPLY, actions.Command.ZAP, ord("f"), ord("g"), ord("r"), ord("y")),
         'env_available_actions': tuple(actions.CompassCardinalDirection) + ("ZAP_META", "APPLY_META"),
         'change_env_episode_freq': 100,
@@ -481,7 +481,7 @@ if __name__ == "__main__":
         'planning_batch_size': 512,
         'planning_steps_freq': 10,
         'epsilon_start': 1.0,
-        'epsilon_end': 0.01,
+        'epsilon_end': 0.0,
         # 'steps_epsilon_end': 25_000,
         'steps_epsilon_end': 15_000,
         'print_episode_freq': 5,

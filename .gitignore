@@ -165,5 +165,6 @@ cython_debug/
 # Notebooks for testing
 *.ipynb
 
-# Training runs folder
+# Training runs / videos folders
 runs
+videos
