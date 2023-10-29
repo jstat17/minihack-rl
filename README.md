@@ -40,4 +40,6 @@ To run the model-free (PPO):
  - the to watch the agent in action: `python video.py`
  
  ## Videos
- 
+ [PPO 5x5 Room](https://youtu.be/xuX97WvH9X8)
+
+<iframe width="560" height="315" src="https://youtu.be/xuX97WvH9X8" frameborder="0" allowfullscreen></iframe>
