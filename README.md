@@ -14,13 +14,10 @@ attempt to get an agent to successfully complete tasks in the
 [minihack](https://github.com/facebookresearch/minihack) environment . The 
 tasks chosen escalated in  difficulty and therefore processing/training time 
 requirements. Starting  with getting the agent to move around the map 
-without dying, and then  attempting to complete levels. This code is very 
-much still in development and so, with taking a instruction from the name 
-of the environment, getting  this code to work requires a mini hack. 
+without dying, and then  attempting to complete levels. 
 
-Two methods were explored: one model-based (DQN) and one model-free (PPO). 
-More success was achieved from the model free method. The two methods are 
-split into two folders and to train and then run needs to be done manually.
+Two methods were explored: one model-based (DQN) and one model-free (PPO).
+The two methods are split into two folders and to train and then run needs to be done manually.
 
 ## Get Started
 Please see the `requirements.txt` file to see what Python libraries are 
@@ -40,6 +37,17 @@ To run the model-free (PPO):
  - the to watch the agent in action: `python video.py`
  
  ## Videos
- [PPO 5x5 Room](https://youtu.be/xuX97WvH9X8)
+ [Model-based DQN 5x5 Room](https://youtu.be/acILsdC6gnE)
+<iframe width="560" height="315" src="https://www.youtube.com/embed/acILsdC6gnE" frameborder="0" allowfullscreen></iframe>
 
-<iframe width="560" height="315" src="https://youtu.be/xuX97WvH9X8" frameborder="0" allowfullscreen></iframe>
+[Model-based DQN 15x15 Room](https://youtu.be/BQE8mxJ-8iM)
+<iframe width="560" height="315" src="https://www.youtube.com/embed/BQE8mxJ-8iM" frameborder="0" allowfullscreen></iframe>
+
+[Model-based DQN Lava Crossing](https://youtu.be/Fsep9nxeWdk)
+<iframe width="560" height="315" src="https://www.youtube.com/embed/Fsep9nxeWdk" frameborder="0" allowfullscreen></iframe>
+
+ [PPO 5x5 Room](https://youtu.be/xuX97WvH9X8)
+<iframe width="560" height="315" src="https://www.youtube.com/embed/xuX97WvH9X8" frameborder="0" allowfullscreen></iframe>
+
+[PPO 15x15 Room](https://youtu.be/PjIjixezrzQ)
+<iframe width="560" height="315" src="https://www.youtube.com/embed/PjIjixezrzQ" frameborder="0" allowfullscreen></iframe>
