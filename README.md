@@ -36,3 +36,8 @@ To run the model-based (DQN):
  - the to watch the agent in action: `python play.py`
 
 To run the model-free (PPO):
+ - to train the agent: `python Multi_room_PPO_training.py`
+ - the to watch the agent in action: `python video.py`
+ 
+ ## Videos
+ 
