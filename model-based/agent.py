@@ -93,21 +93,29 @@ class Agent:
         """
 
         Args:
-            obs_shape:
-            obs_keys:
-            obs_dtype:
-            act_shape:
-            batch_size:
-            max_replay_buffer_len:
-            priority_default:
-            alpha:
-            beta:
-            phi:
-            c:
-            gamma:
-            lr_Q:
-            lr_M:
-            lamb:
+            obs_shape: A tuple of integers representing the shape of the
+                observation space.
+            obs_keys: A list of strings representing the keys of the
+                observations.
+            obs_dtype: A NumPy data type representing the data type of the
+                observations.
+            act_shape: An integer representing the number of actions available
+                to the agent.
+            batch_size: The batch size to use for training the agent.
+            max_replay_buffer_len: The maximum length of the replay buffer.
+            priority_default: The default priority for new transitions added to
+                the replay buffer.
+            alpha: The importance sampling factor.
+            beta: The prioritization exponent.
+            phi: The probability of selecting a transition from the replay
+                buffer based on its priority.
+            c: A constant used to avoid zeros in the denominator when
+                calculating the importance sampling weights.
+            gamma: The discount factor.
+            lr_Q: The learning rate for the Q-network.
+            lr_M: The learning rate for the dynamics model.
+            lamb: The trade-off parameter between the reconstruction loss and
+                the prediction loss for the dynamics model.
         """
         
         self.obs_shape = obs_shape
@@ -116,15 +124,19 @@ class Agent:
         self.act_shape = act_shape
         
         self.batch_size = batch_size
+
+        # Replay buffer. Stores the agent's experience in the form of (state,
+        # action, next_state, reward) tuples.
         self.replay_buffer = ReplayBuffer(
-            max_replay_buffer_len = max_replay_buffer_len,
-            priority_default = priority_default,
-            alpha = alpha,
-            beta = beta,
-            phi = phi,
-            c = c
+            max_replay_buffer_len=max_replay_buffer_len,
+            priority_default=priority_default,
+            alpha=alpha,
+            beta=beta,
+            phi=phi,
+            c=c
         )
-        
+
+        # Hyperparameters
         self.gamma = gamma
         self.lr_Q = lr_Q
         self.lr_M = lr_M
@@ -133,33 +145,43 @@ class Agent:
         self.inv = 0.
         self.inv_objs = []
         self.tool_hotkeys = dict()
-        
-        # DQNs
-        self.Q_target = DQN(
-            obs_shape = self.obs_shape,
-            act_shape = self.act_shape
-        )
-        self.Q_target.to(device)
-        
+
+        # Q-network
+        # Estimates the Q-values for state-action pairs.
         self.Q_learning = DQN(
-            obs_shape = self.obs_shape,
-            act_shape = self.act_shape
+            obs_shape=self.obs_shape,
+            act_shape=self.act_shape
         )
+
+        # Target Q-network
+        # Used to calculate the target Q-values during Q-learning.
+        self.Q_target = DQN(
+            obs_shape=self.obs_shape,
+            act_shape=self.act_shape
+        )
+
+        self.Q_target.to(device)
         self.Q_learning.to(device)
         self.update_target_network()
         
         self.Q_criterion = lambda y, Q_state_action: th.mean(th.pow(y - Q_state_action, 2))
         self.Q_optimizer = Adam(self.Q_learning.parameters(), lr=self.lr_Q)
-        
-        # Dynamics Model
+
+        # Dynamics model
+        # Predicts the next state and reward for a given state and action.
         self.M = DeepModel(
-            obs_shape = self.obs_shape,
-            act_shape = self.act_shape
+            obs_shape=self.obs_shape,
+            act_shape=self.act_shape
         )
         self.M.to(device)
-        
+
+        # Dynamics model loss function
+        # The loss function is a weighted sum of the reconstruction loss and
+        # the prediction loss.
         self.M_component_criterion = nn.MSELoss(reduction='none')
         self.M_criterion = lambda L1, L2, lamb=self.lamb: L1 + lamb*L2
+
+        # Dynamics model optimizer
         self.M_optimizer = Adam(self.M.parameters(), lr=self.lr_M)
         
     def reshape_state(self, channels: list[np.ndarray]) -> np.ndarray:
